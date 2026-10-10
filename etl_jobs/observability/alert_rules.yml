@@ -1,0 +1,70 @@
+rules:
+  - name: refused_rate_high
+    type: threshold
+    metric: refused_rate
+    operator: ">"
+    value: 0.10
+    severity: error
+
+  - name: refused_rate_elevated
+    type: threshold
+    metric: refused_rate
+    operator: ">"
+    value: 0.01
+    severity: warn
+
+  - name: no_rows_accepted
+    type: threshold
+    metric: rows_accepted
+    operator: "=="
+    value: 0
+    severity: error
+
+  - name: undeclared_columns
+    type: threshold
+    metric: undeclared_columns
+    operator: ">"
+    value: 0
+    severity: warn
+
+  - name: too_many_files
+    type: threshold
+    metric: table_file_count
+    operator: ">"
+    value: 50
+    severity: warn
+
+  - name: rows_read_deviation
+    type: deviation
+    metric: rows_read
+    max_ratio: 0.5
+    window: 7
+    min_history: 3
+    severity: warn
+
+  - name: settlement_file_overdue
+    type: threshold
+    metric: arrival_lag_hours
+    layer: bronze
+    table_name: settlement_paysettler
+    operator: ">"
+    value: 24
+    severity: error
+
+  - name: reconciliation_run_overdue
+    type: threshold
+    metric: arrival_lag_hours
+    layer: bronze
+    table_name: reconciliation_runs
+    operator: ">"
+    value: 24
+    severity: error
+
+  - name: transactions_stale
+    type: threshold
+    metric: arrival_lag_hours
+    layer: bronze
+    table_name: transactions
+    operator: ">"
+    value: 24
+    severity: warn
