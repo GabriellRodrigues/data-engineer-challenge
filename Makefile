@@ -1,8 +1,9 @@
-.PHONY: help up down build shell logs test generate generate-large clean
+.PHONY: help up down build shell logs test bronze reprocess optimize report ui generate generate-large clean
 .DEFAULT_GOAL := help
 
 COMPOSE := docker compose
-PIPELINE := $(COMPOSE) exec pipeline
+GIT_SHA := $(shell git describe --always --dirty 2>/dev/null)
+PIPELINE := $(COMPOSE) exec -e GIT_SHA=$(GIT_SHA) pipeline
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -22,17 +23,39 @@ shell: ## Open an interactive shell inside the container
 logs: ## Tail container logs
 	$(COMPOSE) logs -f
 
-test: ## Run the generator smoke tests inside the container
+test: ## Run the test suite inside the container
 	$(PIPELINE) pytest tests/ -v
 
-generate: ## Generate a small synthetic dataset (10k rows) into /tmp/generated
-	$(PIPELINE) python scripts/generate_sample_data.py \
-		--rows 10000 --days 30 --merchants 100 --seed 42 --out /tmp/generated
+bronze: ## Ingest sample data into the Bronze layer (idempotent), then run table maintenance
+	$(PIPELINE) python -m etl_jobs.bronze.ingest_to_bronze
+	$(PIPELINE) python -m etl_jobs.maintenance.optimize_tables
 
-generate-large: ## Generate a large synthetic dataset (1M rows) into /tmp/generated-large
-	$(PIPELINE) python scripts/generate_sample_data.py \
-		--rows 1000000 --days 90 --merchants 500 --seed 42 --out /tmp/generated-large
+reprocess: ## Re-ingest specific files into Bronze, replacing their rows, then run table maintenance (FILES="a.parquet b.parquet" REASON="...")
+	@test -n "$(FILES)" || (echo 'Usage: make reprocess FILES="transactions_batch_1.parquet" REASON="why"' && exit 1)
+	$(PIPELINE) python -m etl_jobs.bronze.ingest_to_bronze --reprocess $(FILES) $(if $(REASON),--reason "$(REASON)")
+	$(PIPELINE) python -m etl_jobs.maintenance.optimize_tables
 
-clean: ## Remove generated artifacts and stop the container
-	-$(PIPELINE) rm -rf /tmp/generated /tmp/generated-large
+optimize: ## Compact/Z-order Delta tables, vacuum expired files and clean up the log
+	$(PIPELINE) python -m etl_jobs.maintenance.optimize_tables
+
+report: ## Generate the pipeline health report (data/observability/reports/latest.md)
+	$(PIPELINE) python -m etl_jobs.observability.health_report
+
+ui: ## Open the DuckDB UI over the Delta tables (runs on the host, not in the container)
+	uv run python run_duckdb_ui.py
+
+LANDING := /app/data/landing
+
+generate: ## Replace data/landing (pipeline source) with a small synthetic dataset (10k rows)
+	$(PIPELINE) rm -rf $(LANDING)
+	$(PIPELINE) python scripts/generate_sample_data.py \
+		--rows 10000 --days 30 --merchants 100 --seed 42 --out $(LANDING)
+
+generate-large: ## Replace data/landing (pipeline source) with a large synthetic dataset (1M rows)
+	$(PIPELINE) rm -rf $(LANDING)
+	$(PIPELINE) python scripts/generate_sample_data.py \
+		--rows 1000000 --days 90 --merchants 500 --seed 42 --out $(LANDING)
+
+clean: ## Remove the generated source data (data/landing) and stop the container
+	-$(PIPELINE) rm -rf $(LANDING)
 	$(COMPOSE) down
