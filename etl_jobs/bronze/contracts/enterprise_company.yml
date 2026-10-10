@@ -1,0 +1,81 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.enterprise_company
+name: enterprise_company
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Merchant registration data captured via CDC from settlement_db.enterprise_company.
+  usage: Source of the merchant dimension (legal name, trade name, CNPJ, CNAE) for Operations, CFO and Compliance.
+  limitations: CDC may deliver more than one event per merchant; the latest event by _timestamp is the current state and history must be kept for point-in-time audits.
+schema:
+  - name: enterprise_company
+    physicalName: enterprise_company
+    physicalType: table
+    logicalType: object
+    description: One row per CDC event of a merchant registration.
+    properties:
+      - name: id
+        logicalType: integer
+        physicalType: bigint
+        required: true
+        description: Surrogate primary key in the source database.
+      - name: merchant_id
+        logicalType: string
+        physicalType: varchar
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+        description: Merchant code shared with transactions and reconciliation results.
+        examples:
+          - MERCH_001
+      - name: legal_name
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: Legal company name (razao social).
+      - name: trade_name
+        logicalType: string
+        physicalType: varchar
+        required: false
+        description: Trade name (nome fantasia).
+      - name: document
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: CNPJ of the merchant.
+        examples:
+          - 24.125.859/0001-45
+      - name: primary_cnae
+        logicalType: string
+        physicalType: varchar
+        required: false
+        description: Primary CNAE (economic activity code).
+        examples:
+          - 4781-4/00
+      - name: created_at
+        logicalType: date
+        physicalType: varchar
+        required: true
+        description: Creation timestamp (ISO 8601, UTC).
+      - name: updated_at
+        logicalType: date
+        physicalType: varchar
+        required: true
+        description: Last update timestamp (ISO 8601, UTC); validity start of each registration version.
+      - name: Op
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: CDC operation (I = insert, U = update, D = delete).
+        quality:
+          - type: library
+            rule: validValues
+            validValues: [I, U, D]
+      - name: _timestamp
+        logicalType: date
+        physicalType: varchar
+        required: true
+        description: CDC event timestamp; orders events of the same merchant_id.

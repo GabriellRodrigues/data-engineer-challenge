@@ -16,7 +16,7 @@ import duckdb
 import pyarrow.parquet as pq
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "generate_sample_data.py"
 
 

@@ -1,8 +1,8 @@
 # Data pipeline outputs (candidate generates these)
 data/
-bronze/
-silver/
-gold/
+/bronze/
+/silver/
+/gold/
 *.duckdb
 *.duckdb.wal
 _delta_log/
@@ -216,5 +216,6 @@ marimo/_lsp/
 __marimo__/
 
 # local tooling / internal
-.claude/
+.claude/*
+!.claude/skills/
 docs/evaluation/

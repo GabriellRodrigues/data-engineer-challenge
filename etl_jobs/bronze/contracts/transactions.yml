@@ -1,0 +1,101 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.transactions
+name: transactions
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Internal transactions captured via CDC from settlement_db.transactions, used as the internal side of the reconciliation.
+  usage: Matched against the PaySettler CSV by transaction_id within the [reference_date - 7d, reference_date] window on created_at.
+  limitations: CDC may deliver more than one event per transaction_id; the latest event by _timestamp is the current state.
+schema:
+  - name: transactions
+    physicalName: transactions
+    physicalType: table
+    logicalType: object
+    description: One row per CDC event of an internal transaction.
+    properties:
+      - name: id
+        logicalType: integer
+        physicalType: bigint
+        required: true
+        description: Surrogate primary key in the source database.
+      - name: transaction_id
+        logicalType: string
+        physicalType: varchar
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+        description: Business key (UUID) shared with the PaySettler file; used for matching.
+        logicalTypeOptions:
+          pattern: "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+        examples:
+          - 550e8400-e29b-41d4-a716-446655440000
+      - name: merchant_id
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: Merchant identifier.
+        examples:
+          - MERCH_001
+      - name: amount
+        logicalType: number
+        physicalType: double
+        required: true
+        description: Transaction amount in the transaction currency.
+      - name: currency
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: ISO 4217 currency code.
+        logicalTypeOptions:
+          pattern: "[A-Z]{3}"
+        examples:
+          - BRL
+      - name: status
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: Transaction status (COMPLETED, PENDING, FAILED).
+        quality:
+          - type: library
+            rule: validValues
+            validValues: [COMPLETED, PENDING, FAILED]
+      - name: description
+        logicalType: string
+        physicalType: varchar
+        required: false
+        description: Free-text transaction description.
+      - name: created_at
+        logicalType: date
+        physicalType: varchar
+        required: true
+        description: Creation timestamp (ISO 8601, UTC); anchors the reconciliation window.
+        examples:
+          - "2025-03-21T18:17:28+00:00"
+      - name: updated_at
+        logicalType: date
+        physicalType: varchar
+        required: true
+        description: Last update timestamp (ISO 8601, UTC).
+      - name: payment_method
+        logicalType: string
+        physicalType: varchar
+        required: false
+        description: Payment method (pix, credit_card, debit_card, boleto); added by schema drift, absent in older batches.
+      - name: Op
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: CDC operation (I = insert, U = update, D = delete).
+        quality:
+          - type: library
+            rule: validValues
+            validValues: [I, U, D]
+      - name: _timestamp
+        logicalType: date
+        physicalType: varchar
+        required: true
+        description: CDC event timestamp; orders events of the same transaction_id.

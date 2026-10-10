@@ -1,0 +1,75 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.settlement_paysettler
+name: settlement_paysettler
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Daily settlement file sent by the external processor PaySettler (CSV, UTF-8, comma separated, header on the first line).
+  usage: Processor side of the reconciliation, matched against internal transactions by transaction_id.
+  limitations: Bronze keeps every CSV value as raw text. Amounts may arrive with a comma decimal or in BRL format (R$ 32.245,91), settled_at may lack the UTC suffix and merchant_id may be lowercase; Silver normalizes these.
+schema:
+  - name: settlement_paysettler
+    physicalName: settlement_paysettler
+    physicalType: table
+    logicalType: object
+    description: One row per settled or reversed transaction in the processor file.
+    properties:
+      - name: transaction_id
+        logicalType: string
+        physicalType: varchar
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+        description: Transaction UUID shared with the internal system; used for matching.
+        logicalTypeOptions:
+          pattern: "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+      - name: merchant_id
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: Merchant identifier as sent by the processor (case not guaranteed).
+        examples:
+          - MERCH_001
+      - name: amount
+        logicalType: number
+        physicalType: varchar
+        required: true
+        description: Settled amount as raw text; accepts dot decimal (152.30), comma decimal (152,30) and BRL format (R$ 1.152,30).
+        logicalTypeOptions:
+          pattern: "-?[0-9]+(\\.[0-9]+)?|(R\\$ ?)?-?([0-9]{1,3}(\\.[0-9]{3})+|[0-9]+),[0-9]+"
+        examples:
+          - "152.30"
+          - "R$ 32.245,91"
+      - name: currency
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: ISO 4217 currency code.
+        logicalTypeOptions:
+          pattern: "[A-Z]{3}"
+      - name: settled_at
+        logicalType: date
+        physicalType: varchar
+        required: true
+        description: Settlement timestamp (ISO 8601, UTC); values without a timezone suffix are interpreted as UTC.
+        examples:
+          - "2025-03-15T14:30:00Z"
+      - name: processor_reference
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: Internal reference of the processor.
+        examples:
+          - PS-2025-00012345
+      - name: status
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: Settlement status (SETTLED = settled normally, REVERSED = reversed after settlement).
+        quality:
+          - type: library
+            rule: validValues
+            validValues: [SETTLED, REVERSED]

@@ -1,0 +1,88 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.reconciliation_results
+name: reconciliation_results
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Categorized reconciliation results captured via CDC from settlement_db.reconciliation_results.
+  usage: One result per run and transaction; source of discrepancy rates for Operations and of the audit trail for Compliance.
+  limitations: merchant_id can be null when the internal transaction had no merchant; the amount of the missing side is null for unreconciled results, and so is difference.
+schema:
+  - name: reconciliation_results
+    physicalName: reconciliation_results
+    physicalType: table
+    logicalType: object
+    description: One row per CDC event of a reconciliation result.
+    properties:
+      - name: id
+        logicalType: integer
+        physicalType: bigint
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+        description: Surrogate primary key in the source database.
+      - name: run_id
+        logicalType: integer
+        physicalType: bigint
+        required: true
+        description: Reconciliation run that produced the result (reconciliation_runs.id).
+      - name: transaction_id
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: Transaction UUID shared by the internal system and the PaySettler file.
+        logicalTypeOptions:
+          pattern: "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+      - name: merchant_id
+        logicalType: string
+        physicalType: varchar
+        required: false
+        description: Merchant identifier; null when the source transaction had no merchant.
+      - name: category
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: Reconciliation category.
+        quality:
+          - type: library
+            rule: validValues
+            validValues: [MATCHED, MISMATCHED, UNRECONCILED_PROCESSOR, UNRECONCILED_INTERNAL]
+      - name: internal_amount
+        logicalType: number
+        physicalType: double
+        required: false
+        description: Amount in the internal system; null for UNRECONCILED_PROCESSOR.
+      - name: processor_amount
+        logicalType: number
+        physicalType: double
+        required: false
+        description: Amount in the PaySettler file; null for UNRECONCILED_INTERNAL.
+      - name: difference
+        logicalType: number
+        physicalType: double
+        required: false
+        description: Absolute difference between the amounts; null when one side is missing.
+        logicalTypeOptions:
+          minimum: 0
+      - name: created_at
+        logicalType: date
+        physicalType: varchar
+        required: true
+        description: Result creation timestamp (ISO 8601, UTC).
+      - name: Op
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: CDC operation (I = insert, U = update, D = delete).
+        quality:
+          - type: library
+            rule: validValues
+            validValues: [I, U, D]
+      - name: _timestamp
+        logicalType: date
+        physicalType: varchar
+        required: true
+        description: CDC event timestamp; orders events of the same result.

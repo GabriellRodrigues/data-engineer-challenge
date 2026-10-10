@@ -1,0 +1,87 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.reconciliation_runs
+name: reconciliation_runs
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Executions of the Settlement Reconciliation Service captured via CDC from settlement_db.reconciliation_runs.
+  usage: Links each PaySettler file and reference_date to its reconciliation results; basis for run auditing and freshness checks.
+  limitations: A run is inserted when it starts and updated when it finishes, so each run has more than one CDC event; completed_at is null until the run completes and when it fails.
+schema:
+  - name: reconciliation_runs
+    physicalName: reconciliation_runs
+    physicalType: table
+    logicalType: object
+    description: One row per CDC event of a reconciliation run.
+    properties:
+      - name: id
+        logicalType: integer
+        physicalType: bigint
+        required: true
+        primaryKey: true
+        primaryKeyPosition: 1
+        description: Run identifier, referenced by reconciliation_results.run_id.
+      - name: reference_date
+        logicalType: date
+        physicalType: varchar
+        required: true
+        description: Business day of the PaySettler file (YYYY-MM-DD, UTC).
+        logicalTypeOptions:
+          pattern: "[0-9]{4}-[0-9]{2}-[0-9]{2}"
+        examples:
+          - "2025-03-04"
+      - name: file_name
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: Name of the PaySettler file processed by the run.
+        examples:
+          - settlement_20250304_02_00.csv
+      - name: status
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: Run status.
+        quality:
+          - type: library
+            rule: validValues
+            validValues: [IN_PROGRESS, COMPLETED, FAILED]
+      - name: total_transactions
+        logicalType: integer
+        physicalType: bigint
+        required: true
+        description: Number of transactions in the processed file.
+        logicalTypeOptions:
+          minimum: 0
+      - name: started_at
+        logicalType: date
+        physicalType: varchar
+        required: true
+        description: Processing start timestamp (ISO 8601, UTC).
+      - name: completed_at
+        logicalType: date
+        physicalType: varchar
+        required: false
+        description: Processing end timestamp (ISO 8601, UTC); null while IN_PROGRESS or when the run FAILED.
+      - name: created_at
+        logicalType: date
+        physicalType: varchar
+        required: true
+        description: Record creation timestamp (ISO 8601, UTC).
+      - name: Op
+        logicalType: string
+        physicalType: varchar
+        required: true
+        description: CDC operation (I = insert, U = update, D = delete).
+        quality:
+          - type: library
+            rule: validValues
+            validValues: [I, U, D]
+      - name: _timestamp
+        logicalType: date
+        physicalType: varchar
+        required: true
+        description: CDC event timestamp; orders events of the same run.
