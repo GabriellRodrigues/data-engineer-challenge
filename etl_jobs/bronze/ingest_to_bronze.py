@@ -302,6 +302,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def select_sources(reprocess: list[str] | None) -> list[Path]:
+    if not SOURCE_DATA_DIR.is_dir():
+        raise ValueError(
+            f"Source folder {SOURCE_DATA_DIR} not found; check DATA_PATH or generate data with make generate"
+        )
     sources = sorted(
         path for path in SOURCE_DATA_DIR.rglob("*")
         if path.is_file() and path.suffix.lower() in READERS

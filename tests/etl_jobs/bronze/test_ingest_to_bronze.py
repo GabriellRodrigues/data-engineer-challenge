@@ -447,3 +447,23 @@ def test_arrival_lag_is_recorded_for_main_tables_only(layout, tmp_path):
     }
     assert set(lags) == {"orders"}
     assert lags["orders"] < 1
+
+
+def test_missing_source_folder_fails_without_writing(layout, monkeypatch, caplog):
+    source_dir, _, bronze_dir = layout
+    monkeypatch.setattr(ingest_to_bronze, "SOURCE_DATA_DIR", source_dir / "typo")
+
+    with pytest.raises(SystemExit) as exit_info:
+        ingest_to_bronze.main([])
+
+    assert exit_info.value.code == 1
+    assert "Source folder" in caplog.text and "typo" in caplog.text
+    assert not bronze_dir.exists()
+
+
+def test_empty_source_folder_is_a_valid_run(layout):
+    _, _, bronze_dir = layout
+
+    ingest_to_bronze.main([])
+
+    assert bronze_dir.exists()
