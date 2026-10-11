@@ -1,0 +1,46 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.gold.fact_reconciliation_result
+name: fact_reconciliation_result
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: The verdict of each transaction in each run, enriched for analysis.
+  usage: Central fact for Operations (O1-O4, O9) and the audit trail of verdicts (C1, C2).
+  limitations: Summing amounts across runs double counts money (the 7-day windows overlap); filter is_reference_run or use fact_transaction. Currency comes from the internal transaction or, failing that, the settlement.
+customProperties:
+  - {property: critical, value: true}
+schema:
+  - name: fact_reconciliation_result
+    physicalName: fact_reconciliation_result
+    physicalType: table
+    logicalType: object
+    description: One row per run_id and transaction_id; partitioned by reference_date.
+    properties:
+      - {name: reference_date, logicalType: date, physicalType: date, required: true, description: Business date of the run; partition column.}
+      - {name: run_id, logicalType: integer, physicalType: bigint, required: true, primaryKey: true, primaryKeyPosition: 1, description: Reconciliation run.}
+      - {name: transaction_id, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 2, description: Reconciled transaction.}
+      - {name: result_id, logicalType: integer, physicalType: bigint, required: true, description: Identifier of the kept result row in the source.}
+      - {name: file_name, logicalType: string, physicalType: varchar, required: true, description: File processed by the run.}
+      - {name: run_status, logicalType: string, physicalType: varchar, required: true, description: Status of the run.}
+      - {name: is_reference_run, logicalType: boolean, physicalType: boolean, required: true, description: True when the run is the reference run of its date.}
+      - {name: merchant_id, logicalType: string, physicalType: varchar, required: false, description: Merchant identifier; null when unknown.}
+      - {name: merchant_sk, logicalType: string, physicalType: varchar, required: true, description: Merchant version valid at the transaction creation (UNKNOWN when not found).}
+      - {name: merchant_id_origin, logicalType: string, physicalType: varchar, required: false, description: "Where merchant_id came from (result, transaction, settlement)."}
+      - {name: category, logicalType: string, physicalType: varchar, required: true, description: Category assigned by the service.}
+      - {name: is_discrepancy, logicalType: boolean, physicalType: boolean, required: true, description: True when the category is not MATCHED.}
+      - {name: currency, logicalType: string, physicalType: varchar, required: false, description: ISO 4217 currency of the transaction.}
+      - {name: internal_amount, logicalType: number, physicalType: "decimal(18,2)", required: false, description: Internal amount.}
+      - {name: processor_amount, logicalType: number, physicalType: "decimal(18,2)", required: false, description: Processor amount.}
+      - {name: difference, logicalType: number, physicalType: "decimal(18,2)", required: false, description: Absolute difference between both amounts.}
+      - {name: amount_at_risk, logicalType: number, physicalType: "decimal(18,2)", required: true, description: "Money in discrepancy: difference for MISMATCHED, the present side for UNRECONCILED, 0 for MATCHED."}
+      - {name: transaction_created_at, logicalType: date, physicalType: timestamp, required: false, description: Creation time of the internal transaction (UTC).}
+      - {name: result_created_at, logicalType: date, physicalType: timestamp, required: true, description: Result creation time (UTC).}
+      - {name: source_row_count, logicalType: integer, physicalType: bigint, required: true, description: Source rows for this key before deduplication.}
+      - {name: _source_file, logicalType: string, physicalType: varchar, required: true, description: Source file of the Bronze row.}
+      - {name: _bronze_ingested_at, logicalType: date, physicalType: timestamp, required: true, description: When the row was loaded into Bronze.}
+      - {name: _silver_run_id, logicalType: string, physicalType: varchar, required: true, description: Silver run that published the source row.}
+      - {name: _gold_run_id, logicalType: string, physicalType: varchar, required: true, description: Gold run that published the row.}
+      - {name: _gold_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Gold run computed the row.}

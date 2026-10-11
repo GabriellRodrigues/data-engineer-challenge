@@ -1,0 +1,26 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.gold.dim_category
+name: dim_category
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Reconciliation categories and whether each one is a discrepancy.
+  usage: "Single definition of the discrepancy rate (O1): every category with is_discrepancy counts."
+  limitations: Static seed; a new category in the source must be added here.
+schema:
+  - name: dim_category
+    physicalName: dim_category
+    physicalType: table
+    logicalType: object
+    description: One row per reconciliation category.
+    properties:
+      - {name: category, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 1, description: "MATCHED, MISMATCHED, UNRECONCILED_PROCESSOR or UNRECONCILED_INTERNAL."}
+      - {name: description, logicalType: string, physicalType: varchar, required: true, description: Business meaning (domain glossary).}
+      - {name: side, logicalType: string, physicalType: varchar, required: true, description: "Where the transaction was seen: both, processor_only or internal_only."}
+      - {name: is_discrepancy, logicalType: boolean, physicalType: boolean, required: true, description: True when the category needs investigation by Operations.}
+      - {name: sort_order, logicalType: integer, physicalType: bigint, required: true, description: Display order.}
+      - {name: _gold_run_id, logicalType: string, physicalType: varchar, required: true, description: Gold run that published the row.}
+      - {name: _gold_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Gold run computed the row.}

@@ -1,0 +1,45 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.gold.fact_transaction_event
+name: fact_transaction_event
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Every CDC event of every internal transaction, with what changed.
+  usage: Transaction trail (C1), changes after reconciliation (C3) and deletes (C6) for Compliance.
+  limitations: Only events present in the extracts; changes between two extracts are invisible.
+customProperties:
+  - {property: critical, value: true}
+schema:
+  - name: fact_transaction_event
+    physicalName: fact_transaction_event
+    physicalType: table
+    logicalType: object
+    description: One row per transaction_id, cdc_timestamp and op; partitioned by created_date.
+    properties:
+      - {name: created_date, logicalType: date, physicalType: date, required: true, description: UTC date of the transaction creation; partition column.}
+      - {name: transaction_id, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 1, description: Business key (UUID).}
+      - {name: cdc_timestamp, logicalType: date, physicalType: timestamp, required: true, primaryKey: true, primaryKeyPosition: 2, description: CDC event time (UTC).}
+      - {name: op, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 3, description: "CDC operation (I, U, D)."}
+      - {name: event_seq, logicalType: integer, physicalType: bigint, required: true, description: Order of the event within the transaction (1 = first).}
+      - {name: source_id, logicalType: integer, physicalType: bigint, required: true, description: Surrogate key in the source database.}
+      - {name: merchant_id, logicalType: string, physicalType: varchar, required: true, description: Merchant identifier.}
+      - {name: amount, logicalType: number, physicalType: "decimal(18,2)", required: true, description: Amount after the event.}
+      - {name: currency, logicalType: string, physicalType: varchar, required: true, description: ISO 4217 currency.}
+      - {name: status, logicalType: string, physicalType: varchar, required: true, description: Status after the event.}
+      - {name: payment_method, logicalType: string, physicalType: varchar, required: false, description: Payment method in lower case.}
+      - {name: previous_amount, logicalType: number, physicalType: "decimal(18,2)", required: false, description: Amount before the event; null for the first event.}
+      - {name: previous_status, logicalType: string, physicalType: varchar, required: false, description: Status before the event; null for the first event.}
+      - {name: amount_changed, logicalType: boolean, physicalType: boolean, required: true, description: True when the event changed the amount.}
+      - {name: status_changed, logicalType: boolean, physicalType: boolean, required: true, description: True when the event changed the status.}
+      - {name: created_at, logicalType: date, physicalType: timestamp, required: true, description: Transaction creation time (UTC).}
+      - {name: updated_at, logicalType: date, physicalType: timestamp, required: true, description: Last update time in the source (UTC).}
+      - {name: first_reconciled_at, logicalType: date, physicalType: timestamp, required: false, description: Creation time of the first verdict on the transaction.}
+      - {name: is_after_reconciliation, logicalType: boolean, physicalType: boolean, required: true, description: True when the event happened after the first verdict.}
+      - {name: _source_file, logicalType: string, physicalType: varchar, required: true, description: Source file of the Bronze row.}
+      - {name: _bronze_ingested_at, logicalType: date, physicalType: timestamp, required: true, description: When the row was loaded into Bronze.}
+      - {name: _silver_run_id, logicalType: string, physicalType: varchar, required: true, description: Silver run that published the source row.}
+      - {name: _gold_run_id, logicalType: string, physicalType: varchar, required: true, description: Gold run that published the row.}
+      - {name: _gold_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Gold run computed the row.}

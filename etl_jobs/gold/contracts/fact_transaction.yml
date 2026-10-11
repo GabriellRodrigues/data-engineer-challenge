@@ -1,0 +1,50 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.gold.fact_transaction
+name: fact_transaction
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Current state of each internal transaction with its reconciliation status.
+  usage: Transacted volume (F1-F4), financial exposure (F7), aging (O7), resolution (O8) and changes after reconciliation (C3).
+  limitations: Reconciliation status is the latest verdict known to Silver; exposure counts only the internal side (processor-only settlements are in fact_reconciliation_result).
+customProperties:
+  - {property: critical, value: true}
+schema:
+  - name: fact_transaction
+    physicalName: fact_transaction
+    physicalType: table
+    logicalType: object
+    description: One row per transaction_id; partitioned by created_date.
+    properties:
+      - {name: created_date, logicalType: date, physicalType: date, required: true, description: UTC date of creation; partition column.}
+      - {name: transaction_id, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 1, description: Business key (UUID).}
+      - {name: merchant_id, logicalType: string, physicalType: varchar, required: true, description: Merchant identifier.}
+      - {name: merchant_sk, logicalType: string, physicalType: varchar, required: true, description: Merchant version valid at creation (UNKNOWN when not registered).}
+      - {name: amount, logicalType: number, physicalType: "decimal(18,2)", required: true, description: Amount in the transaction currency.}
+      - {name: currency, logicalType: string, physicalType: varchar, required: true, description: ISO 4217 currency; amounts are never converted.}
+      - {name: status, logicalType: string, physicalType: varchar, required: true, description: "COMPLETED, PENDING or FAILED."}
+      - {name: payment_method, logicalType: string, physicalType: varchar, required: false, description: Payment method in lower case (mostly null).}
+      - {name: is_deleted, logicalType: boolean, physicalType: boolean, required: true, description: True when the latest CDC event is a delete.}
+      - {name: created_at, logicalType: date, physicalType: timestamp, required: true, description: Creation time (UTC).}
+      - {name: updated_at, logicalType: date, physicalType: timestamp, required: true, description: Last update time in the source (UTC).}
+      - {name: runs_count, logicalType: integer, physicalType: bigint, required: true, description: Runs in which the transaction appeared.}
+      - {name: first_reference_date, logicalType: date, physicalType: date, required: false, description: Reference date of the first run that judged it.}
+      - {name: last_reference_date, logicalType: date, physicalType: date, required: false, description: Reference date of the latest run that judged it.}
+      - {name: latest_run_id, logicalType: integer, physicalType: bigint, required: false, description: Latest run that judged it.}
+      - {name: reconciliation_status, logicalType: string, physicalType: varchar, required: true, description: "Category in the latest run, or NOT_RECONCILED."}
+      - {name: is_resolved_discrepancy, logicalType: boolean, physicalType: boolean, required: true, description: Latest verdict MATCHED after a discrepancy in an earlier run (O8).}
+      - {name: exposure_amount, logicalType: number, physicalType: "decimal(18,2)", required: true, description: "Money not confirmed by the processor: amount if UNRECONCILED_INTERNAL, difference if MISMATCHED, else 0."}
+      - {name: days_unreconciled, logicalType: integer, physicalType: bigint, required: false, description: Days between creation and the latest run for UNRECONCILED_INTERNAL (O7).}
+      - {name: first_reconciled_at, logicalType: date, physicalType: timestamp, required: false, description: Creation time of the first verdict.}
+      - {name: changes_after_reconciliation, logicalType: integer, physicalType: bigint, required: true, description: "CDC events after the first verdict that changed amount or status, or deleted it."}
+      - {name: last_change_after_reconciliation_at, logicalType: date, physicalType: timestamp, required: false, description: Time of the latest such change.}
+      - {name: cdc_event_count, logicalType: integer, physicalType: bigint, required: true, description: Distinct CDC events seen.}
+      - {name: last_cdc_timestamp, logicalType: date, physicalType: timestamp, required: true, description: Time of the event that defines the current state.}
+      - {name: _source_file, logicalType: string, physicalType: varchar, required: true, description: Source file of the Bronze row.}
+      - {name: _bronze_ingested_at, logicalType: date, physicalType: timestamp, required: true, description: When the row was loaded into Bronze.}
+      - {name: _silver_run_id, logicalType: string, physicalType: varchar, required: true, description: Silver run that published the source row.}
+      - {name: _gold_run_id, logicalType: string, physicalType: varchar, required: true, description: Gold run that published the row.}
+      - {name: _gold_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Gold run computed the row.}

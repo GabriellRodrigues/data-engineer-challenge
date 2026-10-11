@@ -15,6 +15,8 @@ def dirs(tmp_path, monkeypatch):
     monkeypatch.setattr(optimize_tables, "SILVER_DIR", tmp_path / "silver")
     monkeypatch.setattr(optimize_tables, "BRONZE_ZORDER", {"orders": ["id"], "missing": None})
     monkeypatch.setattr(optimize_tables, "SILVER_ZORDER", {})
+    monkeypatch.setattr(optimize_tables, "GOLD_DIR", tmp_path / "gold")
+    monkeypatch.setattr(optimize_tables, "GOLD_ZORDER", {})
     return bronze_dir, observability_dir
 
 

@@ -1,0 +1,29 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.gold.agg_volume_daily
+name: agg_volume_daily
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Transacted volume per day, currency and status.
+  usage: Daily TPV (F1, status COMPLETED), count and average ticket (F2), pending and failed volume (F3).
+  limitations: Current CDC state by creation date; deleted transactions excluded; currencies never added together.
+customProperties:
+  - {property: critical, value: true}
+schema:
+  - name: agg_volume_daily
+    physicalName: agg_volume_daily
+    physicalType: table
+    logicalType: object
+    description: One row per created_date, currency and status.
+    properties:
+      - {name: created_date, logicalType: date, physicalType: date, required: true, primaryKey: true, primaryKeyPosition: 1, description: UTC creation date.}
+      - {name: currency, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 2, description: ISO 4217 currency.}
+      - {name: status, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 3, description: "COMPLETED, PENDING or FAILED."}
+      - {name: transaction_count, logicalType: integer, physicalType: bigint, required: true, description: Transactions.}
+      - {name: volume_amount, logicalType: number, physicalType: "decimal(18,2)", required: true, description: Sum of amounts.}
+      - {name: average_ticket, logicalType: number, physicalType: "decimal(18,2)", required: true, description: "Average amount, rounded to cents."}
+      - {name: _gold_run_id, logicalType: string, physicalType: varchar, required: true, description: Gold run that published the row.}
+      - {name: _gold_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Gold run computed the row.}

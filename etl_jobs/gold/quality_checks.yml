@@ -1,0 +1,177 @@
+checks:
+  - name: row_conservation:fact_reconciliation_result
+    type: row_conservation
+    table: fact_reconciliation_result
+    severity: error
+    description: Every Silver result becomes exactly one fact row.
+    query: >
+      SELECT abs((SELECT count(*) FROM silver_reconciliation_results)
+               - (SELECT count(*) FROM fact_reconciliation_result))
+
+  - name: row_conservation:fact_reconciliation_run
+    type: row_conservation
+    table: fact_reconciliation_run
+    severity: error
+    description: Every Silver run becomes exactly one fact row.
+    query: >
+      SELECT abs((SELECT count(*) FROM silver_reconciliation_runs)
+               - (SELECT count(*) FROM fact_reconciliation_run))
+
+  - name: row_conservation:fact_transaction
+    type: row_conservation
+    table: fact_transaction
+    severity: error
+    description: Every Silver transaction becomes exactly one fact row.
+    query: >
+      SELECT abs((SELECT count(*) FROM silver_transactions)
+               - (SELECT count(*) FROM fact_transaction))
+
+  - name: row_conservation:fact_transaction_event
+    type: row_conservation
+    table: fact_transaction_event
+    severity: error
+    description: Every Silver CDC event becomes exactly one fact row.
+    query: >
+      SELECT abs((SELECT count(*) FROM silver_transactions_history)
+               - (SELECT count(*) FROM fact_transaction_event))
+
+  - name: row_conservation:fact_settlement
+    type: row_conservation
+    table: fact_settlement
+    severity: error
+    description: Every Silver settlement line becomes exactly one fact row.
+    query: >
+      SELECT abs((SELECT count(*) FROM silver_settlements)
+               - (SELECT count(*) FROM fact_settlement))
+
+  - name: sum_conservation:agg_volume_daily
+    type: reconciliation
+    table: agg_volume_daily
+    severity: error
+    description: Volume per currency and status in the aggregate equals the non-deleted Silver transactions.
+    query: >
+      SELECT count(*) FROM (
+        SELECT currency, status, sum(amount) AS amount FROM silver_transactions
+        WHERE NOT is_deleted GROUP BY ALL) AS s
+      FULL OUTER JOIN (
+        SELECT currency, status, sum(volume_amount) AS amount FROM agg_volume_daily GROUP BY ALL) AS g
+      USING (currency, status)
+      WHERE s.amount IS DISTINCT FROM g.amount
+
+  - name: sum_conservation:agg_settlement_daily
+    type: reconciliation
+    table: agg_settlement_daily
+    severity: error
+    description: Settled and reversed amounts per currency in the aggregate equal the Silver settlements.
+    query: >
+      SELECT count(*) FROM (
+        SELECT currency, sum(amount) FILTER (WHERE NOT is_reversed) AS settled,
+               sum(amount) FILTER (WHERE is_reversed) AS reversed
+        FROM silver_settlements GROUP BY ALL) AS s
+      FULL OUTER JOIN (
+        SELECT currency, sum(settled_amount) AS settled, sum(reversed_amount) AS reversed
+        FROM agg_settlement_daily GROUP BY ALL) AS g
+      USING (currency)
+      WHERE coalesce(s.settled, 0) <> coalesce(g.settled, 0) OR coalesce(s.reversed, 0) <> coalesce(g.reversed, 0)
+
+  - name: sum_conservation:agg_amount_at_risk_daily
+    type: reconciliation
+    table: agg_amount_at_risk_daily
+    severity: error
+    description: Amount at risk per date in the aggregate equals the reference-run facts.
+    query: >
+      SELECT count(*) FROM (
+        SELECT reference_date, sum(amount_at_risk) AS amount FROM fact_reconciliation_result
+        WHERE is_reference_run GROUP BY ALL) AS f
+      FULL OUTER JOIN (
+        SELECT reference_date, sum(amount_at_risk) AS amount FROM agg_amount_at_risk_daily GROUP BY ALL) AS g
+      USING (reference_date)
+      WHERE f.amount IS DISTINCT FROM g.amount
+
+  - name: relationships:fact_reconciliation_result.merchant_sk
+    type: relationships
+    table: fact_reconciliation_result
+    severity: error
+    description: Every result points to a merchant version (or the UNKNOWN member).
+    query: >
+      SELECT count(*) FROM fact_reconciliation_result f
+      WHERE NOT EXISTS (SELECT 1 FROM dim_merchant m WHERE m.merchant_sk = f.merchant_sk)
+
+  - name: relationships:fact_transaction.merchant_sk
+    type: relationships
+    table: fact_transaction
+    severity: error
+    description: Every transaction points to a merchant version (or the UNKNOWN member).
+    query: >
+      SELECT count(*) FROM fact_transaction f
+      WHERE NOT EXISTS (SELECT 1 FROM dim_merchant m WHERE m.merchant_sk = f.merchant_sk)
+
+  - name: relationships:fact_settlement.merchant_sk
+    type: relationships
+    table: fact_settlement
+    severity: error
+    description: Every settlement points to a merchant version (or the UNKNOWN member).
+    query: >
+      SELECT count(*) FROM fact_settlement f
+      WHERE NOT EXISTS (SELECT 1 FROM dim_merchant m WHERE m.merchant_sk = f.merchant_sk)
+
+  - name: relationships:fact_reconciliation_result.category
+    type: relationships
+    table: fact_reconciliation_result
+    severity: warn
+    description: Categories not described in dim_category (a new category in the source).
+    query: >
+      SELECT count(*) FROM fact_reconciliation_result f
+      WHERE NOT EXISTS (SELECT 1 FROM dim_category c WHERE c.category = f.category)
+
+  - name: rate_bounds:agg_reconciliation_daily
+    type: accepted_range
+    table: agg_reconciliation_daily
+    severity: error
+    description: Rates are between 0 and 1 and the category counts add up to the result count.
+    query: >
+      SELECT count(*) FROM agg_reconciliation_daily
+      WHERE discrepancy_rate NOT BETWEEN 0 AND 1
+         OR matched_count + mismatched_count + unreconciled_processor_count
+            + unreconciled_internal_count <> result_count
+         OR discrepancy_count <> result_count - matched_count
+
+  - name: one_reference_run:fact_reconciliation_run
+    type: unique
+    table: fact_reconciliation_run
+    severity: error
+    description: At most one reference run per reference_date.
+    query: >
+      SELECT count(*) FROM (
+        SELECT reference_date FROM fact_reconciliation_run WHERE is_reference_run
+        GROUP BY 1 HAVING count(*) > 1)
+
+  - name: cnpj_masked:dim_merchant
+    type: expression
+    table: dim_merchant
+    severity: error
+    description: No full CNPJ (14 digits in a row) reaches the Gold layer.
+    query: >
+      SELECT count(*) FROM dim_merchant
+      WHERE regexp_matches(coalesce(document_masked, ''), '[0-9]{14}')
+
+  - name: missing_run:agg_reconciliation_daily
+    type: freshness
+    table: agg_reconciliation_daily
+    severity: warn
+    description: Dates the run cadence expects without a COMPLETED run.
+    query: SELECT count(*) FROM agg_reconciliation_daily WHERE is_missing_run
+
+  - name: currency_unknown:fact_reconciliation_result
+    type: not_null
+    table: fact_reconciliation_result
+    severity: warn
+    description: Results whose currency is not known from the transaction nor the settlement.
+    query: SELECT count(*) FROM fact_reconciliation_result WHERE currency IS NULL
+
+  - name: reconciliation_recheck:audit_reconciliation_recheck
+    type: reconciliation
+    table: audit_reconciliation_recheck
+    severity: warn
+    description: Verdicts of the service that differ from the independent recomputation.
+    query: SELECT count(*) FROM audit_reconciliation_recheck WHERE outcome <> 'agrees'

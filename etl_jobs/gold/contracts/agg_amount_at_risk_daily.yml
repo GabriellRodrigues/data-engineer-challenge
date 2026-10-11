@@ -1,0 +1,31 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.gold.agg_amount_at_risk_daily
+name: agg_amount_at_risk_daily
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Money in discrepancy per date and currency.
+  usage: Amount at risk for Operations (O4) and the CFO.
+  limitations: Reference runs only; currencies are never added together.
+customProperties:
+  - {property: critical, value: true}
+schema:
+  - name: agg_amount_at_risk_daily
+    physicalName: agg_amount_at_risk_daily
+    physicalType: table
+    logicalType: object
+    description: One row per reference_date and currency.
+    properties:
+      - {name: reference_date, logicalType: date, physicalType: date, required: true, primaryKey: true, primaryKeyPosition: 1, description: Business date.}
+      - {name: currency, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 2, description: "ISO 4217 currency, or UNKNOWN."}
+      - {name: result_count, logicalType: integer, physicalType: bigint, required: true, description: Results of the reference run in this currency.}
+      - {name: discrepancy_count, logicalType: integer, physicalType: bigint, required: true, description: Results that are not MATCHED.}
+      - {name: mismatched_amount, logicalType: number, physicalType: "decimal(18,2)", required: true, description: Sum of differences of MISMATCHED results.}
+      - {name: unreconciled_processor_amount, logicalType: number, physicalType: "decimal(18,2)", required: true, description: Processor amount without internal record.}
+      - {name: unreconciled_internal_amount, logicalType: number, physicalType: "decimal(18,2)", required: true, description: Internal amount not seen by the processor.}
+      - {name: amount_at_risk, logicalType: number, physicalType: "decimal(18,2)", required: true, description: Sum of the three amounts above.}
+      - {name: _gold_run_id, logicalType: string, physicalType: varchar, required: true, description: Gold run that published the row.}
+      - {name: _gold_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Gold run computed the row.}

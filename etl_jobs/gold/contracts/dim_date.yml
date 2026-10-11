@@ -1,0 +1,30 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.gold.dim_date
+name: dim_date
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Calendar dimension covering every business date present in Silver.
+  usage: Join key for daily facts and aggregates; fills days without runs or transactions.
+  limitations: Covers the min to max date found in Silver; rebuilt whole on every run.
+schema:
+  - name: dim_date
+    physicalName: dim_date
+    physicalType: table
+    logicalType: object
+    description: One row per calendar day.
+    properties:
+      - {name: date_key, logicalType: date, physicalType: date, required: true, primaryKey: true, primaryKeyPosition: 1, description: Calendar day.}
+      - {name: year, logicalType: integer, physicalType: bigint, required: true, description: Calendar year.}
+      - {name: quarter, logicalType: integer, physicalType: bigint, required: true, description: Calendar quarter (1-4).}
+      - {name: month, logicalType: integer, physicalType: bigint, required: true, description: Calendar month (1-12).}
+      - {name: year_month, logicalType: string, physicalType: varchar, required: true, description: Year and month as YYYY-MM.}
+      - {name: iso_week, logicalType: integer, physicalType: bigint, required: true, description: ISO week number.}
+      - {name: day_of_week, logicalType: integer, physicalType: bigint, required: true, description: "ISO day of week (1 = Monday, 7 = Sunday)."}
+      - {name: day_name, logicalType: string, physicalType: varchar, required: true, description: Day name in English.}
+      - {name: is_weekend, logicalType: boolean, physicalType: boolean, required: true, description: True on Saturday and Sunday.}
+      - {name: _gold_run_id, logicalType: string, physicalType: varchar, required: true, description: Gold run that published the row.}
+      - {name: _gold_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Gold run computed the row.}

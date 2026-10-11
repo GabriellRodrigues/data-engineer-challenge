@@ -1,0 +1,45 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.gold.fact_reconciliation_run
+name: fact_reconciliation_run
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: One row per reconciliation run with its status, duration and verdict counts.
+  usage: Operational health (O5, O6, O10) and run lineage for audit (C2).
+  limitations: is_stuck is evaluated against the build time. Orphan results (quarantine) are not counted.
+customProperties:
+  - {property: critical, value: true}
+schema:
+  - name: fact_reconciliation_run
+    physicalName: fact_reconciliation_run
+    physicalType: table
+    logicalType: object
+    description: One row per run_id; partitioned by reference_date.
+    properties:
+      - {name: reference_date, logicalType: date, physicalType: date, required: true, description: Business date of the run; partition column.}
+      - {name: run_id, logicalType: integer, physicalType: bigint, required: true, primaryKey: true, primaryKeyPosition: 1, description: Run identifier in the source database.}
+      - {name: file_name, logicalType: string, physicalType: varchar, required: true, description: File processed by the run.}
+      - {name: status, logicalType: string, physicalType: varchar, required: true, description: "IN_PROGRESS, COMPLETED or FAILED."}
+      - {name: is_reference_run, logicalType: boolean, physicalType: boolean, required: true, description: True for the latest COMPLETED run of its reference_date; the one KPIs use.}
+      - {name: is_stuck, logicalType: boolean, physicalType: boolean, required: true, description: IN_PROGRESS for more than 24 hours at build time.}
+      - {name: started_at, logicalType: date, physicalType: timestamp, required: true, description: Processing start (UTC).}
+      - {name: completed_at, logicalType: date, physicalType: timestamp, required: false, description: Processing end (UTC).}
+      - {name: duration_s, logicalType: number, physicalType: double, required: false, description: completed_at minus started_at in seconds.}
+      - {name: total_transactions, logicalType: integer, physicalType: bigint, required: true, description: Transactions in the file according to the service.}
+      - {name: result_count, logicalType: integer, physicalType: bigint, required: true, description: Deduplicated results of the run.}
+      - {name: matched_count, logicalType: integer, physicalType: bigint, required: true, description: Results in MATCHED.}
+      - {name: mismatched_count, logicalType: integer, physicalType: bigint, required: true, description: Results in MISMATCHED.}
+      - {name: unreconciled_processor_count, logicalType: integer, physicalType: bigint, required: true, description: Results in UNRECONCILED_PROCESSOR.}
+      - {name: unreconciled_internal_count, logicalType: integer, physicalType: bigint, required: true, description: Results in UNRECONCILED_INTERNAL.}
+      - {name: discrepancy_count, logicalType: integer, physicalType: bigint, required: true, description: Results that are not MATCHED.}
+      - {name: discrepancy_rate, logicalType: number, physicalType: double, required: false, description: discrepancy_count / result_count; null without results.}
+      - {name: total_gap, logicalType: integer, physicalType: bigint, required: true, description: total_transactions minus result_count.}
+      - {name: cdc_event_count, logicalType: integer, physicalType: bigint, required: true, description: CDC events seen for the run.}
+      - {name: _source_file, logicalType: string, physicalType: varchar, required: true, description: Source file of the Bronze row.}
+      - {name: _bronze_ingested_at, logicalType: date, physicalType: timestamp, required: true, description: When the row was loaded into Bronze.}
+      - {name: _silver_run_id, logicalType: string, physicalType: varchar, required: true, description: Silver run that published the source row.}
+      - {name: _gold_run_id, logicalType: string, physicalType: varchar, required: true, description: Gold run that published the row.}
+      - {name: _gold_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Gold run computed the row.}
