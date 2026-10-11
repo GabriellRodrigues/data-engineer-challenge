@@ -22,10 +22,11 @@ every metric available and the questions each one answers.
 | `pipeline_run_step` | `data/observability/pipeline_run_step` | `observability.pipeline_run_step` | run × step |
 | `pipeline_metrics` | `data/observability/pipeline_metrics` | `observability.pipeline_metrics` | run × table × metric (× source file) |
 | `pipeline_alerts` | `data/observability/pipeline_alerts` | `observability.pipeline_alerts` | run × evaluated rule × metric row |
+| `dq_results` | `data/observability/dq_results` | `observability.dq_results` | run × data quality check (Silver) |
 
 - The path comes from `OBSERVABILITY_DIR` in `src/utils/paths.py`. Schemas are fixed in
   `src/observability/store.py` (`SCHEMAS`).
-- All four tables are append-only, use the same retention properties as Bronze and are compacted by
+- All five tables are append-only, use the same retention properties as Bronze and are compacted by
   `make optimize`.
 - In the DuckDB UI, `run_duckdb_ui.py` registers each Delta table as a view in the `observability`
   schema, next to `bronze`, `silver` and `gold`.
@@ -107,9 +108,30 @@ Details that matter when reading the data:
 |---|---|---|
 | Start of `main` | `pipeline_run("maintenance.optimize", "maintenance", OBSERVABILITY_DIR)` | the run |
 | One per Bronze table (`BRONZE_ZORDER`) and observability table (`OBSERVABILITY_ZORDER`) | `run.step("optimize:<table>", layer, table, path, [path])` | step `skipped` if the table does not exist; `failed` with the error if maintenance raises (the other tables continue) |
-| After `maintain_table` succeeds | `run.metric(layer, table, ...)` | the 3 **maintenance metrics** (section 3.3) |
+| After `maintain_table` succeeds | `run.metric(layer, table, ...)` | the 3 **maintenance metrics** (section 3.4) |
 
-No alert rules are evaluated in the maintenance run today.
+No alert rules are evaluated in the maintenance run today. Silver tables (`SILVER_ZORDER`) are
+maintained in the same run, with `layer = silver`.
+
+### 2.3 Silver run (`silver.build`)
+
+`make silver` runs `etl_jobs/silver/build_silver.py` (job `silver.build`, mode `full` or
+`reference_date`) and then the maintenance job.
+
+| Moment in `build_silver.py` | Call | What is recorded |
+|---|---|---|
+| Start of `main` | `pipeline_run("silver.build", mode, OBSERVABILITY_DIR)` | the run |
+| One per Silver table (`SILVER_TABLES`, including the internal `reconciliation_results_deduped`) | `run.step("compute:<table>", ...)` | `inputs` = pinned Bronze versions (`bronze/<table>@v<version>`), `rows_in` = Bronze rows (latest load per file), `rows_out` = computed rows (whole layer, before the date scope) |
+| Tables with a `dedup_source` | `run.metric("silver", table, "duplicates_removed", ...)` | Bronze rows minus computed rows |
+| After every table is computed | `run.step("quality:silver")` + `run_checks` | one row per check in `dq_results` (immediately); `rows_in` = checks run, `rows_rejected` = blocking failures |
+| Blocking check failed | `run.mark_failed(...)` | **nothing is published**; the run ends with exit code 1 |
+| One per published table | `run.step("publish:<table>", ..., output_table)` | Delta `version_before`/`version_after`, `rows_out` = rows written in the scope; metric `rows_out` with `reference_date` when the run covers a single date |
+| After publishing | `table_metrics` per Silver table | `table_row_count`, `table_file_count`, `table_size_bytes` |
+| End | `evaluate_alerts` | `pipeline_alerts` |
+
+Every Silver Delta commit carries `run_id`, `mode`, `scope` (the replaced partitions or `full`),
+`contract_version` and `bronze_versions` in its commit metadata, and every Silver row carries
+`_silver_run_id` plus the Bronze lineage (`_source_file`, `_bronze_run_id`, `_bronze_ingested_at`).
 
 ## 3. Metrics catalog
 
@@ -147,7 +169,15 @@ time) for the other datasets (`EVENT_COLUMNS` / `DEFAULT_EVENT_COLUMN` in `inges
 Values that do not parse as a timestamp are ignored; if the column is missing, the metric is not
 recorded.
 
-### 3.3 Maintenance metrics: one set per optimized table
+### 3.3 Silver metrics: one set per Silver run
+
+| Metric | Unit | How it is computed | Question it answers | Alert rule |
+|---|---|---|---|---|
+| `duplicates_removed` | rows | Bronze rows (latest load per file) − computed Silver rows, for `transactions_history`, `settlements` and `reconciliation_results_deduped` | Is the source sending replays or duplicated lines? | `settlement_duplicates` (warn) |
+| `rows_out` | rows | rows published in the scope of the run | Did the date produce data? How many results went to quarantine? | `results_quarantined` (warn), `no_reconciliation_results` (warn) |
+| `table_row_count`, `table_file_count`, `table_size_bytes` | as in 3.2 | whole Silver table after publishing | How big is the table? Is it fragmenting? | `too_many_files` (warn) |
+
+### 3.4 Maintenance metrics: one set per optimized table
 
 Recorded by `maintenance.optimize` for each Bronze and observability table that exists, with
 `layer` = `bronze` or `observability`.
@@ -222,6 +252,22 @@ fragmenting? How fresh is the data? It is also the baseline for deviation alerts
 Answers: why did the run fail or warn? Which checks passed, as evidence that controls ran (useful
 for Compliance)? How often does a rule fire over time?
 
+### `dq_results`
+
+| Column | Meaning |
+|---|---|
+| `run_id`, `check_name`, `check_type` | run, check name and family (`unique`, `not_null`, `row_conservation`, `relationships`, `expression`, ...) |
+| `layer`, `table_name` | where the check ran |
+| `severity` | `error` (blocks the publish) or `warn` |
+| `status` | `pass`, `warn` or `fail` (a check whose query errors is `fail`) |
+| `failing_rows`, `threshold` | rows that broke the rule and how many are tolerated |
+| `message` | human-readable explanation |
+| `evaluated_at` | when it was evaluated (UTC) |
+
+Answers: which control stopped the Silver publish? Are orphan results or incoherent categories
+growing run after run? Evidence for Compliance that every published version passed the blocking
+checks. The catalog of checks is in [`silver-layer.md`](silver-layer.md).
+
 ## 5. Alerts: what stops and what only warns
 
 Rules live in `etl_jobs/observability/alert_rules.yml` (loaded by `ALERT_RULES_FILE`) and are
@@ -238,6 +284,9 @@ evaluated in step 8 of the ingestion run (`src/observability/alerts.py`):
 | `settlement_file_overdue` | threshold | `arrival_lag_hours > 24` on `settlement_paysettler` | **error** | The PaySettler file is daily; a full day without a new file means the reconciliation input is missing |
 | `reconciliation_run_overdue` | threshold | `arrival_lag_hours > 24` on `reconciliation_runs` | **error** | The reconciliation service runs daily; no new run means Operations dashboards go stale |
 | `transactions_stale` | threshold | `arrival_lag_hours > 24` on `transactions` | warn | CDC batches stopped arriving; investigate before it affects the 7-day window |
+| `results_quarantined` | threshold | `rows_out > 0` on silver `reconciliation_results_quarantine` | warn | Results point to runs that do not exist; they are out of the KPIs |
+| `no_reconciliation_results` | threshold | `rows_out == 0` on silver `reconciliation_results` | warn | The scope of the run has no reconciliation results (failed run or missing date) |
+| `settlement_duplicates` | threshold | `duplicates_removed > 0` on silver `settlements` | warn | The processor file repeats lines; they were collapsed |
 
 - **threshold:** `metric operator value`.
 - Any rule can be restricted to a `layer` and/or a single `table_name` (used by the overdue rules,
