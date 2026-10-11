@@ -1,4 +1,4 @@
-.PHONY: help up down build shell logs test bronze reprocess silver optimize report ui generate generate-large clean
+.PHONY: help up down build shell logs test bronze reprocess silver gold pipeline queries lineage optimize report ui generate generate-large clean
 .DEFAULT_GOAL := help
 
 COMPOSE := docker compose
@@ -38,6 +38,22 @@ reprocess: ## Re-ingest specific files into Bronze, replacing their rows, then r
 silver: ## Build the Silver layer from Bronze (full rebuild, or REFERENCE_DATE=YYYY-MM-DD for one date), then run table maintenance
 	$(PIPELINE) python -m etl_jobs.silver.build_silver $(if $(REFERENCE_DATE),--reference-date $(REFERENCE_DATE))
 	$(PIPELINE) python -m etl_jobs.maintenance.optimize_tables
+
+gold: ## Build the Gold layer from Silver (full rebuild, or REFERENCE_DATE=YYYY-MM-DD for one date), then run table maintenance
+	$(PIPELINE) python -m etl_jobs.gold.build_gold $(if $(REFERENCE_DATE),--reference-date $(REFERENCE_DATE))
+	$(PIPELINE) python -m etl_jobs.maintenance.optimize_tables
+
+pipeline: ## Run Bronze, Silver and Gold in order (REFERENCE_DATE=YYYY-MM-DD scopes Silver and Gold), then table maintenance
+	$(PIPELINE) python -m etl_jobs.bronze.ingest_to_bronze
+	$(PIPELINE) python -m etl_jobs.silver.build_silver $(if $(REFERENCE_DATE),--reference-date $(REFERENCE_DATE))
+	$(PIPELINE) python -m etl_jobs.gold.build_gold $(if $(REFERENCE_DATE),--reference-date $(REFERENCE_DATE))
+	$(PIPELINE) python -m etl_jobs.maintenance.optimize_tables
+
+queries: ## Run the example analytical queries against Gold and write data/reports/gold_queries.md (CONSUMER=operations|cfo|compliance)
+	$(PIPELINE) python -m etl_jobs.gold.run_queries --output data/reports/gold_queries.md $(if $(CONSUMER),--consumer $(CONSUMER))
+
+lineage: ## Regenerate the table lineage graph (docs/pipeline_docs/lineage.md) from the SQL and the contracts
+	$(PIPELINE) python -m etl_jobs.observability.lineage
 
 optimize: ## Compact/Z-order Delta tables, vacuum expired files and clean up the log
 	$(PIPELINE) python -m etl_jobs.maintenance.optimize_tables

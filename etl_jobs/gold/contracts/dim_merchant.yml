@@ -1,0 +1,34 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.gold.dim_merchant
+name: dim_merchant
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Merchant registry as a type 2 dimension, with the CNPJ masked.
+  usage: Names and CNAE segment for Operations and CFO breakdowns; registry valid at a past date for Compliance (C4).
+  limitations: The full CNPJ is not exposed; document_hash allows exact matching without revealing it. The UNKNOWN row stands for merchants that could not be identified.
+schema:
+  - name: dim_merchant
+    physicalName: dim_merchant
+    physicalType: table
+    logicalType: object
+    description: One row per merchant version (merchant_sk), plus the UNKNOWN member.
+    properties:
+      - {name: merchant_sk, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 1, description: "Surrogate key: md5 of merchant_id and valid_from; UNKNOWN for the unknown member."}
+      - {name: merchant_id, logicalType: string, physicalType: varchar, required: true, description: Merchant identifier in upper case.}
+      - {name: legal_name, logicalType: string, physicalType: varchar, required: true, description: Legal name (razão social) valid in this version.}
+      - {name: trade_name, logicalType: string, physicalType: varchar, required: false, description: Trade name (nome fantasia).}
+      - {name: document_masked, logicalType: string, physicalType: varchar, required: false, description: CNPJ with branch and check digits masked (12.345.678/****-**).}
+      - {name: document_hash, logicalType: string, physicalType: varchar, required: false, description: SHA-256 of the CNPJ digits; sensitive value never exposed.}
+      - {name: primary_cnae, logicalType: string, physicalType: varchar, required: false, description: Main CNAE code.}
+      - {name: cnae_division, logicalType: string, physicalType: varchar, required: false, description: First two digits of the CNAE (economic division).}
+      - {name: valid_from, logicalType: date, physicalType: timestamp, required: true, description: Start of validity (UTC).}
+      - {name: valid_to, logicalType: date, physicalType: timestamp, required: false, description: End of validity; null for the latest version.}
+      - {name: is_current, logicalType: boolean, physicalType: boolean, required: true, description: True for the version valid now.}
+      - {name: is_deleted, logicalType: boolean, physicalType: boolean, required: true, description: True when this version records a delete in the source.}
+      - {name: is_unknown, logicalType: boolean, physicalType: boolean, required: true, description: True only for the UNKNOWN member.}
+      - {name: _gold_run_id, logicalType: string, physicalType: varchar, required: true, description: Gold run that published the row.}
+      - {name: _gold_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Gold run computed the row.}

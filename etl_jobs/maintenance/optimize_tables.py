@@ -13,7 +13,7 @@ from src.observability.store import (
     PIPELINE_RUN_STEP,
 )
 from src.utils.logger import get_logger
-from src.utils.paths import BRONZE_DIR, OBSERVABILITY_DIR, SILVER_DIR
+from src.utils.paths import BRONZE_DIR, GOLD_DIR, OBSERVABILITY_DIR, SILVER_DIR
 
 logger = get_logger("maintenance.optimize")
 
@@ -38,6 +38,24 @@ SILVER_ZORDER = {
     "reconciliation_results": ["transaction_id"],
     "reconciliation_results_quarantine": None,
     "merchants": None,
+}
+
+GOLD_ZORDER = {
+    "dim_date": None,
+    "dim_category": None,
+    "dim_merchant": None,
+    "fact_reconciliation_run": None,
+    "fact_reconciliation_result": ["transaction_id"],
+    "fact_transaction_event": ["transaction_id"],
+    "fact_transaction": ["transaction_id"],
+    "fact_settlement": ["transaction_id"],
+    "audit_reconciliation_recheck": ["transaction_id"],
+    "agg_reconciliation_daily": None,
+    "agg_amount_at_risk_daily": None,
+    "agg_reconciliation_merchant": None,
+    "agg_volume_daily": None,
+    "agg_merchant_volume_daily": None,
+    "agg_settlement_daily": None,
 }
 
 OBSERVABILITY_ZORDER = {
@@ -76,6 +94,7 @@ def main():
         for layer, layer_dir, tables in (
             ("bronze", BRONZE_DIR, BRONZE_ZORDER),
             ("silver", SILVER_DIR, SILVER_ZORDER),
+            ("gold", GOLD_DIR, GOLD_ZORDER),
             ("observability", OBSERVABILITY_DIR, OBSERVABILITY_ZORDER),
         ):
             failed += maintain(run, layer, layer_dir, tables)

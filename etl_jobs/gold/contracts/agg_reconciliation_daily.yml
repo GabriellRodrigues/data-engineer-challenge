@@ -1,0 +1,48 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.gold.agg_reconciliation_daily
+name: agg_reconciliation_daily
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Daily reconciliation health for Operations.
+  usage: Discrepancy rate and trend (O1-O3), run status and missing runs (O5).
+  limitations: Uses only the reference run of each date. The baseline is the average of up to 5 previous dates with results; a date is not comparable when it has less than half of the median result count of the previous 28 dates, and such dates neither get a baseline nor enter one. The expected cadence is the most common gap between run dates.
+customProperties:
+  - {property: critical, value: true}
+schema:
+  - name: agg_reconciliation_daily
+    physicalName: agg_reconciliation_daily
+    physicalType: table
+    logicalType: object
+    description: One row per calendar day between the first and the last run date.
+    properties:
+      - {name: reference_date, logicalType: date, physicalType: date, required: true, primaryKey: true, primaryKeyPosition: 1, description: Business date.}
+      - {name: cadence_days, logicalType: integer, physicalType: bigint, required: true, description: Expected days between runs (most common gap).}
+      - {name: is_expected_run_date, logicalType: boolean, physicalType: boolean, required: true, description: True when the cadence expects a run on this date.}
+      - {name: runs_count, logicalType: integer, physicalType: bigint, required: true, description: "Runs of the date, any status."}
+      - {name: completed_runs, logicalType: integer, physicalType: bigint, required: true, description: COMPLETED runs.}
+      - {name: failed_runs, logicalType: integer, physicalType: bigint, required: true, description: FAILED runs.}
+      - {name: in_progress_runs, logicalType: integer, physicalType: bigint, required: true, description: IN_PROGRESS runs.}
+      - {name: stuck_runs, logicalType: integer, physicalType: bigint, required: true, description: Runs IN_PROGRESS for more than 24 hours.}
+      - {name: is_missing_run, logicalType: boolean, physicalType: boolean, required: true, description: Expected date without a COMPLETED run.}
+      - {name: reference_run_id, logicalType: integer, physicalType: bigint, required: false, description: Run whose results define the KPIs of the date.}
+      - {name: duration_s, logicalType: number, physicalType: double, required: false, description: Duration of the reference run in seconds.}
+      - {name: result_count, logicalType: integer, physicalType: bigint, required: true, description: Results of the reference run.}
+      - {name: matched_count, logicalType: integer, physicalType: bigint, required: true, description: MATCHED results.}
+      - {name: mismatched_count, logicalType: integer, physicalType: bigint, required: true, description: MISMATCHED results.}
+      - {name: unreconciled_processor_count, logicalType: integer, physicalType: bigint, required: true, description: UNRECONCILED_PROCESSOR results.}
+      - {name: unreconciled_internal_count, logicalType: integer, physicalType: bigint, required: true, description: UNRECONCILED_INTERNAL results.}
+      - {name: discrepancy_count, logicalType: integer, physicalType: bigint, required: true, description: Results that are not MATCHED.}
+      - {name: discrepancy_rate, logicalType: number, physicalType: double, required: false, description: discrepancy_count / result_count (O1).}
+      - {name: mismatch_rate, logicalType: number, physicalType: double, required: false, description: MISMATCHED share (O2).}
+      - {name: unreconciled_processor_rate, logicalType: number, physicalType: double, required: false, description: UNRECONCILED_PROCESSOR share (O2).}
+      - {name: unreconciled_internal_rate, logicalType: number, physicalType: double, required: false, description: UNRECONCILED_INTERNAL share (O2).}
+      - {name: discrepancy_rate_baseline, logicalType: number, physicalType: double, required: false, description: Average discrepancy rate of up to 5 previous comparable dates (O3); null for non-comparable dates.}
+      - {name: discrepancy_rate_deviation, logicalType: number, physicalType: double, required: false, description: discrepancy_rate minus the baseline; positive means worse (O3).}
+      - {name: result_count_baseline, logicalType: number, physicalType: double, required: false, description: Median result count of up to 28 previous dates with results.}
+      - {name: is_comparable_volume, logicalType: boolean, physicalType: boolean, required: false, description: "True when the date has at least 50% of the baseline result count; only then the deviation feeds the alert (null without results)."}
+      - {name: _gold_run_id, logicalType: string, physicalType: varchar, required: true, description: Gold run that published the row.}
+      - {name: _gold_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Gold run computed the row.}

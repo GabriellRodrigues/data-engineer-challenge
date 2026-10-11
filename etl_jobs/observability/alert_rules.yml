@@ -95,3 +95,21 @@ rules:
     operator: ">"
     value: 0
     severity: warn
+
+  - name: discrepancy_rate_spike
+    type: threshold
+    metric: discrepancy_rate_deviation
+    layer: gold
+    table_name: agg_reconciliation_daily
+    operator: ">"
+    value: 0.05
+    severity: warn
+
+  - name: reconciliation_runs_missing
+    type: threshold
+    metric: missing_runs
+    layer: gold
+    table_name: agg_reconciliation_daily
+    operator: ">"
+    value: 0
+    severity: warn

@@ -1,0 +1,39 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.gold.fact_settlement
+name: fact_settlement
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Every settlement line sent by a processor, linked to the internal record.
+  usage: Settled and reversed volume (F5, F6) and settlements without internal record (F7).
+  limitations: The challenge sample has a single file (one reference_date).
+schema:
+  - name: fact_settlement
+    physicalName: fact_settlement
+    physicalType: table
+    logicalType: object
+    description: One row per processor, reference_date, transaction_id and processor_reference; partitioned by reference_date.
+    properties:
+      - {name: reference_date, logicalType: date, physicalType: date, required: true, primaryKey: true, primaryKeyPosition: 2, description: Business date of the file; partition column.}
+      - {name: processor, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 1, description: Processor that sent the file.}
+      - {name: transaction_id, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 3, description: Transaction UUID shared with the internal system.}
+      - {name: processor_reference, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 4, description: Internal reference of the processor.}
+      - {name: merchant_id, logicalType: string, physicalType: varchar, required: true, description: Merchant identifier.}
+      - {name: merchant_sk, logicalType: string, physicalType: varchar, required: true, description: Merchant version valid at settlement (UNKNOWN when not registered).}
+      - {name: amount, logicalType: number, physicalType: "decimal(18,2)", required: true, description: Settled amount.}
+      - {name: currency, logicalType: string, physicalType: varchar, required: true, description: ISO 4217 currency.}
+      - {name: status, logicalType: string, physicalType: varchar, required: true, description: SETTLED or REVERSED.}
+      - {name: is_reversed, logicalType: boolean, physicalType: boolean, required: true, description: True for REVERSED lines.}
+      - {name: signed_amount, logicalType: number, physicalType: "decimal(18,2)", required: true, description: "amount, negative for REVERSED lines; its sum is the net settled."}
+      - {name: settled_at, logicalType: date, physicalType: timestamp, required: true, description: Settlement time (UTC).}
+      - {name: settled_date, logicalType: date, physicalType: date, required: true, description: UTC date of settled_at.}
+      - {name: has_internal_transaction, logicalType: boolean, physicalType: boolean, required: true, description: True when the transaction exists in the internal records.}
+      - {name: internal_amount, logicalType: number, physicalType: "decimal(18,2)", required: false, description: Current internal amount of the transaction.}
+      - {name: _source_file, logicalType: string, physicalType: varchar, required: true, description: Source file of the Bronze row.}
+      - {name: _bronze_ingested_at, logicalType: date, physicalType: timestamp, required: true, description: When the row was loaded into Bronze.}
+      - {name: _silver_run_id, logicalType: string, physicalType: varchar, required: true, description: Silver run that published the source row.}
+      - {name: _gold_run_id, logicalType: string, physicalType: varchar, required: true, description: Gold run that published the row.}
+      - {name: _gold_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Gold run computed the row.}

@@ -1,0 +1,32 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.gold.agg_reconciliation_merchant
+name: agg_reconciliation_merchant
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Reconciliation results per merchant and date.
+  usage: Merchant hotspots (O9).
+  limitations: Reference runs only; names are the registry version valid at the transaction date.
+schema:
+  - name: agg_reconciliation_merchant
+    physicalName: agg_reconciliation_merchant
+    physicalType: table
+    logicalType: object
+    description: One row per reference_date and merchant_id.
+    properties:
+      - {name: reference_date, logicalType: date, physicalType: date, required: true, primaryKey: true, primaryKeyPosition: 1, description: Business date.}
+      - {name: merchant_id, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 2, description: "Merchant identifier, or UNKNOWN."}
+      - {name: legal_name, logicalType: string, physicalType: varchar, required: false, description: Legal name valid at the transaction date.}
+      - {name: primary_cnae, logicalType: string, physicalType: varchar, required: false, description: Main CNAE code.}
+      - {name: result_count, logicalType: integer, physicalType: bigint, required: true, description: Results of the merchant in the reference run.}
+      - {name: matched_count, logicalType: integer, physicalType: bigint, required: true, description: MATCHED results.}
+      - {name: mismatched_count, logicalType: integer, physicalType: bigint, required: true, description: MISMATCHED results.}
+      - {name: unreconciled_processor_count, logicalType: integer, physicalType: bigint, required: true, description: UNRECONCILED_PROCESSOR results.}
+      - {name: unreconciled_internal_count, logicalType: integer, physicalType: bigint, required: true, description: UNRECONCILED_INTERNAL results.}
+      - {name: discrepancy_count, logicalType: integer, physicalType: bigint, required: true, description: Results that are not MATCHED.}
+      - {name: discrepancy_rate, logicalType: number, physicalType: double, required: true, description: discrepancy_count / result_count.}
+      - {name: _gold_run_id, logicalType: string, physicalType: varchar, required: true, description: Gold run that published the row.}
+      - {name: _gold_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Gold run computed the row.}

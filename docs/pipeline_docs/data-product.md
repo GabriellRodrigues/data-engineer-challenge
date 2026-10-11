@@ -13,6 +13,7 @@ tolerance, 7-day window) see `docs/domain-glossary.md`.
 - [6. Compliance: traceability and audit](#6-compliance-traceability-and-audit)
 - [7. Deliberately out of scope](#7-deliberately-out-of-scope)
 - [8. What this requires from Silver](#8-what-this-requires-from-silver)
+- [9. Where each KPI lives in Gold](#9-where-each-kpi-lives-in-gold)
 
 ## 1. The problem
 
@@ -148,3 +149,32 @@ For the P0 KPIs, Silver must deliver:
 
 "Current state per transaction" metrics (F7, O7, O8) are computed in Gold. How each output is
 built is in [`silver-layer.md`](silver-layer.md).
+
+## 9. Where each KPI lives in Gold
+
+The tables and rules are in [`gold-layer.md`](gold-layer.md); the queries and their answers on the
+sample in [`analytics.md`](analytics.md).
+
+| KPI | Gold table.column | Query |
+|---|---|---|
+| O1, O2 | `agg_reconciliation_daily.discrepancy_rate`, `mismatch_rate`, `unreconciled_*_rate` (reference run); `fact_reconciliation_run` per run | `operations/01` |
+| O3 | `agg_reconciliation_daily.discrepancy_rate_baseline`, `discrepancy_rate_deviation`; alert `discrepancy_rate_spike` | `operations/01` |
+| O4 | `agg_amount_at_risk_daily` (per currency); `fact_reconciliation_result.amount_at_risk` | `operations/03` |
+| O5 | `agg_reconciliation_daily.is_missing_run`, `failed_runs`, `stuck_runs`; alert `reconciliation_runs_missing` | `operations/02` |
+| O6 | `fact_reconciliation_run.duration_s` | `operations/02` |
+| O7 | `fact_transaction.days_unreconciled` | `operations/05` |
+| O8 | `fact_transaction.is_resolved_discrepancy` | `operations/06` |
+| O9 | `agg_reconciliation_merchant` | `operations/04` |
+| O10 | `fact_reconciliation_run.total_gap` | `operations/02` |
+| F1, F2 | `agg_volume_daily` (`status = 'COMPLETED'`) | `cfo/01` |
+| F3 | `agg_volume_daily` by `status` | `cfo/02` |
+| F4 | `agg_merchant_volume_daily.share_of_daily_volume` | `cfo/03` |
+| F5, F6 | `agg_settlement_daily` | `cfo/04` |
+| F7 | `fact_transaction.exposure_amount` + latest `UNRECONCILED_PROCESSOR` verdicts | `cfo/05` |
+| F8 | window over `agg_volume_daily` | `cfo/01` |
+| C1 | `fact_transaction_event` + `fact_reconciliation_result` | `compliance/01` |
+| C2 | lineage columns of every fact + `fact_reconciliation_run.file_name` | `compliance/02` |
+| C3 | `fact_transaction_event.is_after_reconciliation`, `fact_transaction.changes_after_reconciliation` | `compliance/03` |
+| C4 | `merchant_sk` (version valid at the event) → `dim_merchant` | `compliance/04` |
+| C5 | Silver and Gold checks in `dq_results` | — |
+| C6 | `fact_transaction_event` (`op = 'D'`), `fact_settlement.is_reversed` | `compliance/05` |

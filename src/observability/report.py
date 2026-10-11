@@ -3,10 +3,13 @@ from pathlib import Path
 
 import duckdb
 
+from src.lineage.graph import Lineage
 from src.observability.store import SCHEMAS, read
 
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 BASELINE_WINDOW = 7
+FAILED = "failed"
+DATA_STEPS = ("ingest:", "compute:", "publish:")
 
 
 def _connect(base_dir: Path) -> duckdb.DuckDBPyConnection:
@@ -51,7 +54,40 @@ def _select_runs(con: duckdb.DuckDBPyConnection, run_id: str | None) -> list[tup
     ).fetchall()
 
 
-def _run_section(con: duckdb.DuckDBPyConnection, run: tuple) -> list[str]:
+def stale_tables(steps: list[tuple[str, str, str | None, str]]) -> set[str]:
+    stale, computed, published = set(), set(), set()
+    for step, layer, dataset, status in steps:
+        if not dataset or not step.startswith(DATA_STEPS):
+            continue
+        node_id = f"{layer}.{dataset}"
+        if status == FAILED:
+            stale.add(node_id)
+        if step.startswith("compute:"):
+            computed.add(node_id)
+        if step.startswith("publish:") and status != FAILED:
+            published.add(node_id)
+    return stale | (computed - published)
+
+
+def _impact_section(con: duckdb.DuckDBPyConnection, run_id: str, lineage: Lineage) -> list[str]:
+    steps = con.execute(
+        "SELECT step, layer, dataset, status FROM pipeline_run_step WHERE run_id = ?", [run_id]
+    ).fetchall()
+    rows = []
+    for node_id in sorted(stale_tables(steps)):
+        node = lineage.nodes.get(node_id)
+        if node is None or not node.published:
+            continue
+        affected = ([node_id] if node.critical else []) + lineage.impact(node_id)
+        rows.append((node_id, ", ".join(affected) or "none"))
+
+    lines = ["", "### Critical tables affected", ""]
+    if not rows:
+        return lines + ["The run failed without leaving a table stale (no failed data step)."]
+    return lines + _table(["Table not refreshed", "Critical tables now stale"], rows)
+
+
+def _run_section(con: duckdb.DuckDBPyConnection, run: tuple, lineage: Lineage | None = None) -> list[str]:
     run_id, job, mode, status, started_at, duration_s, git_sha, error = run
     lines = [
         f"## {job} — run `{run_id}`",
@@ -72,6 +108,8 @@ def _run_section(con: duckdb.DuckDBPyConnection, run: tuple) -> list[str]:
     ).fetchall()
     lines += ["", "### Steps", ""]
     lines += _table(["Step", "Status", "Rows in", "Rows out", "Refused", "Delta version", "Seconds", "Error"], steps)
+    if lineage is not None and status == FAILED:
+        lines += _impact_section(con, run_id, lineage)
 
     alerts = con.execute(
         "SELECT status, rule, table_name, source_file, message FROM pipeline_alerts "
@@ -112,7 +150,9 @@ def _run_section(con: duckdb.DuckDBPyConnection, run: tuple) -> list[str]:
     return lines + [""]
 
 
-def build_report(base_dir: Path, run_id: str | None = None, last: int = 10) -> tuple[list[str], str]:
+def build_report(
+    base_dir: Path, run_id: str | None = None, last: int = 10, lineage: Lineage | None = None
+) -> tuple[list[str], str]:
     con = _connect(base_dir)
     lines = ["# Pipeline health report", "", f"Generated at {datetime.now(UTC).strftime(TIME_FORMAT)} UTC.", ""]
 
@@ -124,7 +164,7 @@ def build_report(base_dir: Path, run_id: str | None = None, last: int = 10) -> t
     if not run_id:
         lines += ["Latest run of each job.", ""]
     for run in runs:
-        lines += _run_section(con, run)
+        lines += _run_section(con, run, lineage)
 
     recent = con.execute(
         f"""

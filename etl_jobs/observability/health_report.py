@@ -2,6 +2,8 @@ import argparse
 import sys
 from datetime import UTC, datetime
 
+from etl_jobs.observability.lineage import build_lineage
+from src.lineage.graph import Lineage
 from src.observability.report import build_report
 from src.utils.logger import get_logger
 from src.utils.paths import OBSERVABILITY_DIR, OBSERVABILITY_REPORTS_DIR
@@ -18,9 +20,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def load_lineage() -> Lineage | None:
+    try:
+        return build_lineage()
+    except Exception:
+        logger.exception("Lineage could not be built; the report will not list the critical tables affected")
+        return None
+
+
 def main(argv: list[str] | None = None):
     args = parse_args(argv)
-    run_ids, report = build_report(OBSERVABILITY_DIR, args.run_id, args.last)
+    run_ids, report = build_report(OBSERVABILITY_DIR, args.run_id, args.last, load_lineage())
     if not run_ids:
         logger.error("No pipeline run found to report on%s", f" (run_id={args.run_id})" if args.run_id else "")
         sys.exit(1)

@@ -1,0 +1,27 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.gold.agg_merchant_volume_daily
+name: agg_merchant_volume_daily
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Completed volume per merchant, day and currency.
+  usage: TPV by merchant and concentration (F4).
+  limitations: COMPLETED and non-deleted transactions only.
+schema:
+  - name: agg_merchant_volume_daily
+    physicalName: agg_merchant_volume_daily
+    physicalType: table
+    logicalType: object
+    description: One row per created_date, merchant_id and currency.
+    properties:
+      - {name: created_date, logicalType: date, physicalType: date, required: true, primaryKey: true, primaryKeyPosition: 1, description: UTC creation date.}
+      - {name: merchant_id, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 2, description: Merchant identifier.}
+      - {name: currency, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 3, description: ISO 4217 currency.}
+      - {name: transaction_count, logicalType: integer, physicalType: bigint, required: true, description: Completed transactions.}
+      - {name: volume_amount, logicalType: number, physicalType: "decimal(18,2)", required: true, description: Completed volume.}
+      - {name: share_of_daily_volume, logicalType: number, physicalType: double, required: true, description: Share of the day volume in the same currency.}
+      - {name: _gold_run_id, logicalType: string, physicalType: varchar, required: true, description: Gold run that published the row.}
+      - {name: _gold_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Gold run computed the row.}

@@ -42,3 +42,30 @@ def test_missing_run_fails(dirs):
         health_report.main([])
 
     assert exit_info.value.code == 1
+
+
+def test_failed_run_report_names_critical_tables(dirs):
+    base_dir, reports_dir = dirs
+    with pipeline_run("gold.build", "full", base_dir) as run:
+        with run.step("compute:fact_transaction", "gold", "fact_transaction"):
+            pass
+        run.mark_failed("Blocking data quality checks failed")
+
+    health_report.main([])
+
+    latest = (reports_dir / "latest.md").read_text(encoding="utf-8")
+    assert "| gold.fact_transaction | gold.fact_transaction, gold.agg_volume_daily |" in latest
+
+
+def test_report_survives_a_broken_lineage(dirs, monkeypatch):
+    base_dir, reports_dir = dirs
+    with pipeline_run("gold.build", "full", base_dir) as run:
+        run.mark_failed("boom")
+
+    def broken():
+        raise ValueError("bad contract")
+
+    monkeypatch.setattr(health_report, "build_lineage", broken)
+    health_report.main([])
+
+    assert "Critical tables affected" not in (reports_dir / "latest.md").read_text(encoding="utf-8")
