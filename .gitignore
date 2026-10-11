@@ -219,3 +219,7 @@ __marimo__/
 .claude/*
 !.claude/skills/
 docs/evaluation/
+.idea/
+Claude context.html
+Claude context_files/
+claude_*_context.txt
