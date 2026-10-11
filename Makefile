@@ -1,4 +1,4 @@
-.PHONY: help up down build shell logs test bronze reprocess silver gold pipeline queries optimize report ui generate generate-large clean
+.PHONY: help up down build shell logs test bronze reprocess silver gold pipeline queries lineage optimize report ui generate generate-large clean
 .DEFAULT_GOAL := help
 
 COMPOSE := docker compose
@@ -51,6 +51,9 @@ pipeline: ## Run Bronze, Silver and Gold in order (REFERENCE_DATE=YYYY-MM-DD sco
 
 queries: ## Run the example analytical queries against Gold and write data/reports/gold_queries.md (CONSUMER=operations|cfo|compliance)
 	$(PIPELINE) python -m etl_jobs.gold.run_queries --output data/reports/gold_queries.md $(if $(CONSUMER),--consumer $(CONSUMER))
+
+lineage: ## Regenerate the table lineage graph (docs/pipeline_docs/lineage.md) from the SQL and the contracts
+	$(PIPELINE) python -m etl_jobs.observability.lineage
 
 optimize: ## Compact/Z-order Delta tables, vacuum expired files and clean up the log
 	$(PIPELINE) python -m etl_jobs.maintenance.optimize_tables
