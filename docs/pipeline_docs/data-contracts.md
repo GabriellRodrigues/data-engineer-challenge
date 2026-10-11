@@ -39,8 +39,22 @@ Enforcement runs in three steps, in this order, before anything is written.
 ### 1. Contract file validation (`src/data_contract/contract_file_validator.py`)
 
 The YAML must have the mandatory ODCS fields, a known `logicalType` and a supported `physicalType`
-(`bigint`, `integer`, `smallint`, `double`, `float`, `varchar`, `boolean`, `date`).
-An invalid contract stops the inge| Required column absent | removed column | **pipeline fails** |
+(`bigint`, `integer`, `smallint`, `double`, `float`, `varchar`, `boolean`, `date`, plus
+`timestamp` and `decimal(18,2)` used by the Silver and Gold output contracts).
+An invalid contract stops the ingestion of that file.
+
+Optional fields outside the schema checks are allowed. The only one the pipeline reads is
+`customProperties: [{property: critical, value: true}]`, which marks a table as critical in the
+lineage graph (`observability.md`, section 9).
+
+### 2. Schema enforcement (`src/data_contract/schema_validator.py`)
+
+The schema is compared with the contract as a whole. Breaking changes stop the pipeline; additive
+changes are accepted with a warning.
+
+| Change in the source | Detected as | Outcome |
+|---|---|---|
+| Required column absent | removed column | **pipeline fails** |
 | Contract column absent and a new column has the same name ignoring case, `_`, `-` and spaces (`amount` → `Amount`) | renamed column | **pipeline fails** (also for optional columns) |
 | Column type differs from `physicalType` | type change | **pipeline fails** |
 | Column not declared in the contract | new column | kept and written (`schema_mode="merge"`), `WARNING` logged |

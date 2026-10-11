@@ -25,8 +25,9 @@ processed and queried with **DuckDB**, run in **Docker Compose**.
 | **Table maintenance** | done | Z-order/compaction (only when data changed), vacuum with 30-day retention, checkpoints. |
 | **Observability** | done | Run/step registry, metrics, alert rules (warn vs stop) and a Markdown health report. |
 | **Silver** | done | Typed, deduplicated, conformed tables built from Bronze in SQL (DuckDB). Idempotent per `reference_date` (partition replace), full rebuild by default. Output contract per table. See [`silver-layer.md`](silver-layer.md). |
-| **Data quality checks** | done (Silver) | Dataset-level checks (unique, not_null, row conservation, relationships, category coherence, ...) run before publishing; `error` blocks the publish, `warn` only records. Results in `dq_results`. |
-| **Gold** | not started | Folders exist (`etl_jobs/gold`, `data/gold`). |
+| **Data quality checks** | done (Silver, Gold) | Dataset-level checks (unique, not_null, row and sum conservation between layers, relationships, category coherence, recomputed reconciliation, ...) run before publishing; `error` blocks the publish, `warn` only records. Results in `dq_results`. |
+| **Gold** | done | Dimensional model (3 dimensions, 5 facts, an audit recheck table) and daily aggregates per consumer, built from Silver with the same compute-check-publish code. Idempotent per `reference_date`. Business metrics feed the alerts. See [`gold-layer.md`](gold-layer.md). |
+| **Example queries** | done | 17 queries for Operations, CFO and Compliance (`make queries`), with the answers on the sample in [`analytics.md`](analytics.md). |
 
 Bronze tables produced from the source files in `data/landing/` (written by `make generate`; same file names as the challenge sample in `docs/sample-data/`):
 
@@ -49,18 +50,27 @@ etl_jobs/                       Entry points (python -m etl_jobs.<...>)
   maintenance/optimize_tables.py  Delta maintenance job
   observability/health_report.py  Health report job
   observability/alert_rules.yml   Alert rules (thresholds and deviations)
+  observability/lineage.py        Table lineage graph (Mermaid) and impact of a table
   silver/build_silver.py          Silver build job (compute, check, publish)
   silver/tables.py                Silver table registry (inputs, partition, date scope)
   silver/sql/*.sql                One query per Silver table, plus macros.sql
   silver/contracts/*.yml          Output contracts of the Silver tables
   silver/quality_checks.yml       Custom data quality checks of the Silver layer
-  gold/                           Not implemented yet
+  gold/build_gold.py              Gold build job (same compute, check, publish as Silver)
+  gold/tables.py                  Gold table registry (inputs, partition, date scope)
+  gold/sql/*.sql                  One query per Gold table, plus macros.sql
+  gold/contracts/*.yml            Output contracts of the Gold tables
+  gold/quality_checks.yml         Custom data quality checks of the Gold layer
+  gold/queries/<consumer>/*.sql   Example analytical queries (operations, cfo, compliance)
+  gold/run_queries.py             Runs the example queries and writes a Markdown report
 src/                            Reusable components (no entry points)
   data_contract/                  Contract file, schema and record validation
   observability/                  Run registry, metrics, alerts, report, storage
   common/delta_maintenance.py     Optimize/vacuum logic and table properties
   common/delta_io.py              Pinned-version reads and partition-replace publish
+  common/layer_build.py           Shared layer build: compute, contract conform, checks, publish, CLI
   data_quality/checks.py          Dataset-level checks and dq_results persistence
+  lineage/graph.py                Lineage graph: SQL references, traversal, criticality, Mermaid
   utils/                          Paths, logger, YAML reader
 tests/                          Mirrors the path of the component under test
   src/..., etl_jobs/..., scripts/...
@@ -73,7 +83,8 @@ data/                           Generated, not versioned
   observability/<table>           Observability Delta tables
   observability/reports/          Health reports (Markdown)
   silver/<table>                  Silver Delta tables
-  gold/                           Empty for now
+  gold/<table>                    Gold Delta tables
+  reports/gold_queries.md         Results of make queries
 scripts/generate_sample_data.py Synthetic data generator (from the challenge)
 run_duckdb_ui.py                DuckDB UI over all Delta tables (runs on the host)
 Makefile                        Shortcuts for every operation (make help)
@@ -102,6 +113,8 @@ make up          # build the image and start the container (docker compose up -d
 make generate    # write a synthetic dataset (10k transactions) to data/landing
 make bronze      # ingest data/landing into Bronze, then run table maintenance
 make silver      # build the Silver layer from Bronze, then run table maintenance
+make gold        # build the Gold layer from Silver, then run table maintenance
+make queries     # run the example queries, results in data/reports/gold_queries.md
 make report      # write data/observability/reports/latest.md
 make test        # run the test suite inside the container
 make ui          # optional: DuckDB UI at http://localhost:4213 (host, needs uv)
@@ -118,6 +131,8 @@ in `pyproject.toml` do need a rebuild (`make up`); see section 7.
 uv sync --extra dev
 uv run python -m etl_jobs.bronze.ingest_to_bronze
 uv run python -m etl_jobs.silver.build_silver
+uv run python -m etl_jobs.gold.build_gold
+uv run python -m etl_jobs.gold.run_queries --output data/reports/gold_queries.md
 uv run python -m etl_jobs.maintenance.optimize_tables
 uv run python -m etl_jobs.observability.health_report
 uv run --extra dev pytest
@@ -139,8 +154,12 @@ On the host, `GIT_SHA` is not set unless you export it, so runs are recorded wit
 | `make bronze` | Bronze ingestion, then maintenance | stops at the first failing job |
 | `make reprocess FILES="a.parquet b.csv" REASON="..."` | Bronze ingestion of only those files, replacing their rows, then maintenance | `REASON` is optional but recommended (audit) |
 | `make silver` / `make silver REFERENCE_DATE=2025-03-16` | Silver build (full rebuild, or one business date), then maintenance | a blocking data quality check stops the run before anything is published |
+| `make gold` / `make gold REFERENCE_DATE=2025-03-16` | Gold build (full rebuild, or one business date), then maintenance | reads the published Silver; run Silver first for the same dates |
+| `make pipeline` / `make pipeline REFERENCE_DATE=2025-03-16` | Bronze, Silver, Gold and maintenance in order | stops at the first failing job |
+| `make queries` / `make queries CONSUMER=cfo` | example queries against Gold, results in `data/reports/gold_queries.md` | exit code 1 if a query fails |
+| `make lineage` | regenerate `docs/pipeline_docs/lineage.md` | run after changing a Silver/Gold SQL, table registry or `critical` flag; the tests fail when it is stale |
 | `make optimize` | maintenance only | |
-| `make report` | health report of the latest run of each job | |
+| `make report` | health report of the latest run of each job | a failed run also lists the critical tables it left stale |
 | `make ui` | DuckDB UI on the host | needs uv; downloads the `ui` and `delta` DuckDB extensions on first use |
 | `make generate` / `make generate-large` | **replace** `data/landing` with a synthetic dataset (10k / 1M transactions, dirty-data patterns on) | see section 5.6 |
 | `make clean` | remove `data/landing` and stop the container | Bronze and observability are kept |
@@ -150,7 +169,10 @@ Job options:
 ```bash
 python -m etl_jobs.bronze.ingest_to_bronze [--reprocess FILE [FILE ...]] [--reason TEXT]   # FILE = path relative to DATA_PATH
 python -m etl_jobs.silver.build_silver [--reference-date YYYY-MM-DD | --start-date YYYY-MM-DD --end-date YYYY-MM-DD]
+python -m etl_jobs.gold.build_gold [--reference-date YYYY-MM-DD | --start-date YYYY-MM-DD --end-date YYYY-MM-DD]
+python -m etl_jobs.gold.run_queries [--consumer operations|cfo|compliance] [--output FILE] [--max-rows N]
 python -m etl_jobs.observability.health_report [--run-id RUN_ID] [--last N]
+python -m etl_jobs.observability.lineage [--output FILE] [--impact LAYER.TABLE]
 ```
 
 Environment variables: `DATA_PATH` (input folder), `LOG_LEVEL` (default `INFO`), `GIT_SHA` (code
@@ -175,7 +197,7 @@ Drop the files in `DATA_PATH` and run `make bronze`.
 - **Logs:** one line per file with rows read / accepted / refused, plus warnings for contract
   violations and alerts.
 - **Report:** `make report`, then open `data/observability/reports/latest.md`.
-- **SQL:** `make ui`, schemas `bronze` and `observability`.
+- **SQL:** `make ui`, schemas `bronze`, `silver`, `gold` and `observability`.
 
 ```sql
 SELECT _source_file, _ingestion_mode, count(*) FROM bronze.transactions GROUP BY ALL;
@@ -308,9 +330,19 @@ metric with that name, optionally restricted to a `layer` and/or a `table_name` 
 per source with `arrival_lag_hours`). The available metrics are listed in
 `observability.md`, section 3.
 
-### 6.4 Write a new job (e.g. Silver)
+### 6.4 Add a Gold table or an analytical question
 
-Follow the Bronze job:
+- **Table:** `etl_jobs/gold/sql/<table>.sql`, `etl_jobs/gold/contracts/<table>.yml` and an entry in
+  `GOLD_TABLES`; see [`gold-layer.md`](gold-layer.md), section 8.
+- **Question:** a new `.sql` in `etl_jobs/gold/queries/<consumer>/`; `test_run_queries.py` runs it
+  against the test Gold, and `make queries` includes it. Document the question and the answer in
+  [`analytics.md`](analytics.md).
+
+### 6.5 Write a new job
+
+A layer built from another one (like Silver and Gold) only needs a table registry, SQL files,
+contracts and checks: `src/common/layer_build.py` does the rest. Any other job follows the Bronze
+job:
 
 - Wrap the run in `pipeline_run(...)` and each unit of work in `run.step(...)`.
 - Record metrics with `run.metric(...)`, passing `reference_date` for partitioned layers.
@@ -334,6 +366,9 @@ in `tests/`, and add a `make` target.
 | Runs recorded with `git_sha = unknown` | job run without `make` and without `GIT_SHA` | use `make`, or `export GIT_SHA=$(git describe --always --dirty)` |
 | `git_sha` ends with `-dirty` | the run used uncommitted code | commit, then rerun if you need a reproducible run |
 | Run fails with `settlement_file_overdue` / `reconciliation_run_overdue` | no new file for that source in more than 24 hours (`arrival_lag_hours`) | check whether the producer delivered and whether the file reached `data/landing`; ingest it with `make bronze` |
+| Bronze fails with `Source folder ... not found; check DATA_PATH` | `DATA_PATH` points to a folder that does not exist (never generated, or a typo). In **Git Bash**, `docker compose exec -e DATA_PATH=/app/docs/sample-data ...` is rewritten to a Windows path (`C:/Program Files/Git/app/...`) before reaching Docker | prefix the command with `MSYS_NO_PATHCONV=1`, or run it from PowerShell/WSL; check the path with `docker compose exec pipeline ls $DATA_PATH` |
+| `make gold` fails with `Silver table '<name>' not found` | Silver was never built (or was deleted) | `make silver`, then `make gold` (or `make pipeline`) |
+| Gold numbers look old | Gold reads the published Silver; a failed Silver run leaves the previous version | check the latest `silver.build` run in the report, fix it and rerun Silver, then Gold |
 | `make ui` fails to start | runs on the host: needs uv and internet the first time (DuckDB extensions) | `uv sync`, check connectivity, or change `DUCKDB_UI_PORT` |
 
 ## 8. Conventions
@@ -352,8 +387,11 @@ in `tests/`, and add a `make` target.
 | Document | Covers |
 |---|---|
 | [`test-plan.md`](test-plan.md) | Automated tests, end-to-end smoke test with expected numbers, idempotency and failure scenarios, scale test results, verification queries |
+| [`gold-layer.md`](gold-layer.md) | Gold model, tables and grain, business rules (reference run, trend, exposure, recheck), idempotency, checks, business metrics, limits |
+| [`lineage.md`](lineage.md) | Generated graph of table dependencies, critical tables and what feeds them |
+| [`analytics.md`](analytics.md) | Questions per consumer, the query that answers each one and its result on the sample, what is deliberately not answered and why |
 | [`silver-layer.md`](silver-layer.md) | Silver tables, grain and keys, cleaning and dedup rules, idempotency per reference date, compute-check-publish, data quality checks, limits |
-| [`data-product.md`](data-product.md) | Consumers, KPIs per consumer with priorities, sample data findings, scope cuts, what Silver must deliver |
+| [`data-product.md`](data-product.md) | Consumers, KPIs per consumer with priorities, sample data findings, scope cuts, what Silver must deliver, where each KPI lives in Gold |
 | [`data-contracts.md`](data-contracts.md) | Sources and dataset names, schema and record rules, dead letter table, idempotency, reprocessing, load traceability |
 | [`observability.md`](observability.md) | Observability tables, when each record is written, metrics catalog, alerts, health report, SQL recipes |
 | [`delta-maintenance.md`](delta-maintenance.md) | Optimize/Z-order rules, why optimize is skipped, retention |

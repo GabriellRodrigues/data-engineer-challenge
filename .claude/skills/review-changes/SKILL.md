@@ -62,10 +62,10 @@ What the pipeline expects; flag each deviation with file and line:
 
 | Rule | Look for |
 |---|---|
-| Failures are isolated where the job promises it | Bronze: one file failing does not stop the others (`ingest_file` in a `try`, collected in `failed`); maintenance: per table. Silver: any exception fails the whole run |
+| Failures are isolated where the job promises it | Bronze: one file failing does not stop the others (`ingest_file` in a `try`, collected in `failed`); maintenance: per table. Silver and Gold: any exception fails the whole run |
 | A failure fails the run | `run.mark_failed(...)` with a useful message, `sys.exit(1)`, step status `failed` with the error stored in `pipeline_run_step.error` |
 | Nothing swallowed | no bare `except:`/`except Exception: pass`; caught exceptions are logged with `logger.exception` (traceback) or re-raised; no `print` |
-| Writes are atomic and safe to rerun | one Delta commit per table write; Silver compute → check → publish (no publish after a blocking check); reruns converge (hash skip in Bronze, `replaceWhere` in Silver) |
+| Writes are atomic and safe to rerun | one Delta commit per table write; Silver and Gold compute → check → publish (no publish after a blocking check); reruns converge (hash skip in Bronze, `replaceWhere` in Silver and Gold) |
 | Invalid input is rejected with a clear error | contract violations raise `SchemaContractError`/`ContractValidationError`; bad CLI arguments use `parser.error` (exit 2); config files (`alert_rules.yml`, `quality_checks.yml`) are validated on load |
 | Bad rows are not silently dropped | refused rows go to `<dataset>_refused`, orphans to quarantine, dedups are counted in metrics |
 | Messages are actionable | the error names the file/table/check and what was expected; logs in English |
@@ -79,15 +79,17 @@ needed / missing**. Known couplings in this repo:
 | If the change touches | Then check |
 |---|---|
 | A Bronze contract (`etl_jobs/bronze/contracts/*.yml`) | `version` bumped; Silver SQL reading the column; `register_bronze` NULL-fill for removed optional columns; `data-contracts.md` |
-| A Silver contract or SQL (`etl_jobs/silver/contracts`, `sql/`) | both sides agree (`conform` rejects undeclared columns); `primaryKey`/`required` imply `unique`/`not_null` checks; `quality_checks.yml` queries using the column; `silver-layer.md` |
+| A Silver contract or SQL (`etl_jobs/silver/contracts`, `sql/`) | both sides agree (`conform` rejects undeclared columns); `primaryKey`/`required` imply `unique`/`not_null` checks; `quality_checks.yml` queries using the column; **Gold SQL and Gold checks reading the column** (`silver_<table>` views); `silver-layer.md` |
+| A Gold contract or SQL (`etl_jobs/gold/contracts`, `sql/`) | both sides agree; Gold `quality_checks.yml`; the example queries in `etl_jobs/gold/queries/` (`test_run_queries.py` runs them); `gold-layer.md` and `analytics.md` (rules and answers on the sample) |
 | `PHYSICAL_TYPES` / contract validator | contract file validator accepts the type; tests parametrized over every contract |
-| A new or renamed table | Bronze: `DATASET_PATTERNS`, `EVENT_COLUMNS`, `BRONZE_ZORDER` (+ `_refused`); Silver: `SILVER_TABLES` order and `bronze_inputs`, `SILVER_ZORDER`, scope/partition column; DuckDB UI picks it up automatically; docs table lists |
+| A new or renamed table | Bronze: `DATASET_PATTERNS`, `EVENT_COLUMNS`, `BRONZE_ZORDER` (+ `_refused`); Silver/Gold: `SILVER_TABLES`/`GOLD_TABLES` order and `inputs`, `SILVER_ZORDER`/`GOLD_ZORDER`, scope/partition column; DuckDB UI picks it up automatically; docs table lists |
 | `src/observability/store.py` schemas | **existing Delta tables in `data/observability` keep the old schema** (a renamed/removed column breaks appends: document the migration or the reset); `run_registry.py`, `report.py`, `alerts.py`, `observability.md` §4 |
-| `alert_rules.yml` / `quality_checks.yml` | metric/table names exist and are emitted by a job; severity choice (an `error` stops the run and downstream); `observability.md` §5 / `silver-layer.md` catalog |
+| `alert_rules.yml` / `quality_checks.yml` | metric/table names exist and are emitted by a job; severity choice (an `error` stops the run and downstream); `observability.md` §5 / `silver-layer.md` / `gold-layer.md` catalog |
 | `src/utils/paths.py` | every test that monkeypatches the old name; `docker-compose.yml` mounts and `DATA_PATH` |
-| `src/common`, `src/data_contract`, `src/data_quality` (shared code) | every caller in Bronze, Silver, maintenance and tests, not only the one the change was made for |
+| `src/common`, `src/data_contract`, `src/data_quality` (shared code) | every caller in Bronze, Silver, Gold, maintenance and tests, not only the one the change was made for (`layer_build.py` is shared by Silver and Gold) |
 | `pyproject.toml` | `uv.lock` updated; the container image needs `make up`; mention it in the PR |
 | `Makefile` | `.PHONY`, `make help` text, `user-guide.md` commands |
+| A Silver/Gold SQL, `SILVER_TABLES`/`GOLD_TABLES`, or a `critical` custom property in a contract | `make lineage` was run (`docs/pipeline_docs/lineage.md` regenerated; `test_committed_lineage_doc_is_up_to_date` fails otherwise) |
 | Behavior described in docs | `docs/pipeline_docs/*.md` and `README.md` sections still true (commands, table lists, numbers, limits) |
 
 Repository rules that also apply to the diff: no comments or docstrings in code; logs in English;

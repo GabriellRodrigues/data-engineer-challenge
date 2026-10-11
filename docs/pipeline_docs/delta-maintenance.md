@@ -1,8 +1,10 @@
 # Delta table maintenance
 
 `make optimize` (`etl_jobs/maintenance/optimize_tables.py`) runs `maintain_table` from
-`src/common/delta_maintenance.py` on every Bronze table listed in `BRONZE_ZORDER` and on the four
-observability tables (`OBSERVABILITY_ZORDER`, compaction only). Each table is a step of the
+`src/common/delta_maintenance.py` on every Bronze table listed in `BRONZE_ZORDER`, every Silver table in
+`SILVER_ZORDER`, every Gold table in `GOLD_ZORDER` and on the observability tables
+(`OBSERVABILITY_ZORDER`, compaction only). Gold facts are Z-ordered by `transaction_id`, the key of
+the audit lookups; dimensions and aggregates are only compacted. Each table is a step of the
 `maintenance.optimize` run in `pipeline_run_step` (see `observability.md`), and a failure on one
 table does not stop the others. Each table goes through:
 

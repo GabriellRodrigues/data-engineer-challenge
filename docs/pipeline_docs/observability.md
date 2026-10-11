@@ -13,6 +13,7 @@ every metric available and the questions each one answers.
 - [6. Health report](#6-health-report)
 - [7. Debugging recipes](#7-debugging-recipes)
 - [8. Limits and production](#8-limits-and-production)
+- [9. Lineage and critical tables](#9-lineage-and-critical-tables)
 
 ## 1. Where the data is stored
 
@@ -108,10 +109,10 @@ Details that matter when reading the data:
 |---|---|---|
 | Start of `main` | `pipeline_run("maintenance.optimize", "maintenance", OBSERVABILITY_DIR)` | the run |
 | One per Bronze table (`BRONZE_ZORDER`) and observability table (`OBSERVABILITY_ZORDER`) | `run.step("optimize:<table>", layer, table, path, [path])` | step `skipped` if the table does not exist; `failed` with the error if maintenance raises (the other tables continue) |
-| After `maintain_table` succeeds | `run.metric(layer, table, ...)` | the 3 **maintenance metrics** (section 3.4) |
+| After `maintain_table` succeeds | `run.metric(layer, table, ...)` | the 3 **maintenance metrics** (section 3.5) |
 
-No alert rules are evaluated in the maintenance run today. Silver tables (`SILVER_ZORDER`) are
-maintained in the same run, with `layer = silver`.
+No alert rules are evaluated in the maintenance run today. Silver (`SILVER_ZORDER`) and Gold
+(`GOLD_ZORDER`) tables are maintained in the same run, with `layer = silver` / `gold`.
 
 ### 2.3 Silver run (`silver.build`)
 
@@ -132,6 +133,20 @@ maintained in the same run, with `layer = silver`.
 Every Silver Delta commit carries `run_id`, `mode`, `scope` (the replaced partitions or `full`),
 `contract_version` and `bronze_versions` in its commit metadata, and every Silver row carries
 `_silver_run_id` plus the Bronze lineage (`_source_file`, `_bronze_run_id`, `_bronze_ingested_at`).
+
+### 2.4 Gold run (`gold.build`)
+
+`make gold` runs `etl_jobs/gold/build_gold.py` (job `gold.build`). It records exactly what the
+Silver run records (same code, `src/common/layer_build.py`), with `layer = gold` and Silver as the
+input layer:
+
+- `compute:<table>` steps with `inputs` = pinned Silver versions (`silver/<table>@v<version>`);
+- `quality:gold` with one `dq_results` row per check;
+- `publish:<table>` steps with the Delta versions, and the `rows_out` and table metrics;
+- commit metadata `silver_versions` instead of `bronze_versions`; every row carries `_gold_run_id`.
+
+After publishing, it adds the **business metrics** of section 3.4, so that the alert engine
+watches the reconciliation itself and not only the pipeline.
 
 ## 3. Metrics catalog
 
@@ -177,7 +192,17 @@ recorded.
 | `rows_out` | rows | rows published in the scope of the run | Did the date produce data? How many results went to quarantine? | `results_quarantined` (warn), `no_reconciliation_results` (warn) |
 | `table_row_count`, `table_file_count`, `table_size_bytes` | as in 3.2 | whole Silver table after publishing | How big is the table? Is it fragmenting? | `too_many_files` (warn) |
 
-### 3.4 Maintenance metrics: one set per optimized table
+### 3.4 Gold business metrics: one set per Gold run
+
+Recorded with `layer = gold` and `table_name = agg_reconciliation_daily`.
+
+| Metric | Unit | How it is computed | Question it answers | Alert rule |
+|---|---|---|---|---|
+| `discrepancy_rate` | fraction 0–1 | rate of the latest date with results in the scope of the run (`reference_date` filled) | What is today's discrepancy rate? | none |
+| `discrepancy_rate_deviation` | fraction | that rate minus the average of the previous 5 comparable dates; not recorded when the date has less than half of the usual result volume (`is_comparable_volume`) | Is the discrepancy rate going up? | `discrepancy_rate_spike` (warn) |
+| `missing_runs` | dates | dates the run cadence expects without a `COMPLETED` run, in the scope (all dates on a full rebuild) | Did a reconciliation fail or not happen? | `reconciliation_runs_missing` (warn) |
+
+### 3.5 Maintenance metrics: one set per optimized table
 
 Recorded by `maintenance.optimize` for each Bronze and observability table that exists, with
 `layer` = `bronze` or `observability`.
@@ -287,6 +312,8 @@ evaluated in step 8 of the ingestion run (`src/observability/alerts.py`):
 | `results_quarantined` | threshold | `rows_out > 0` on silver `reconciliation_results_quarantine` | warn | Results point to runs that do not exist; they are out of the KPIs |
 | `no_reconciliation_results` | threshold | `rows_out == 0` on silver `reconciliation_results` | warn | The scope of the run has no reconciliation results (failed run or missing date) |
 | `settlement_duplicates` | threshold | `duplicates_removed > 0` on silver `settlements` | warn | The processor file repeats lines; they were collapsed |
+| `discrepancy_rate_spike` | threshold | `discrepancy_rate_deviation > 0.05` on gold `agg_reconciliation_daily` | warn | The discrepancy rate rose more than 5 p.p. over its recent baseline: Operations should look at the run |
+| `reconciliation_runs_missing` | threshold | `missing_runs > 0` on gold `agg_reconciliation_daily` | warn | A date expected by the run cadence has no completed run; its KPIs are empty |
 
 - **threshold:** `metric operator value`.
 - Any rule can be restricted to a `layer` and/or a single `table_name` (used by the overdue rules,
@@ -325,6 +352,14 @@ For each job it shows the run summary, the steps (rows in/out, refused, Delta ve
 non-passing alerts and the run metrics next to the median of the previous 7 values. It ends with the
 last N runs, with failed steps and refused rows.
 
+When a run **failed**, the report adds **Critical tables affected**: for every table the run did not
+refresh, the critical tables that are now stale (section 9). A table is not refreshed when one of its
+`ingest:`, `compute:` or `publish:` steps failed, or when it was computed but never published (for
+example, a blocking check stopped the run). Maintenance (`optimize:`) failures do not count, since the
+data is still current. This answers "the dashboards have no data: what is affected?" without reading
+the lineage by hand. If the lineage cannot be built (a broken contract, say), the report is still
+written, without this section.
+
 ## 7. Debugging recipes
 
 Run these in the DuckDB UI (`make ui`):
@@ -362,3 +397,39 @@ WHERE t.transaction_id = '<uuid>';
   (Slack/PagerDuty) instead of only logs and the report.
 - `VACUUM` retention (30 days) also limits time travel to the versions referenced in
   `pipeline_run_step`.
+
+## 9. Lineage and critical tables
+
+`make lineage` (`etl_jobs/observability/lineage.py`, logic in `src/lineage/graph.py`) writes the
+table dependency graph to [`lineage.md`](lineage.md) as a Mermaid diagram, rendered by GitHub and
+most Markdown viewers. It reads only what the repository already has:
+
+| Information | Source |
+|---|---|
+| Tables | Bronze contracts (one dataset each), `SILVER_TABLES`, `GOLD_TABLES` |
+| Dependencies | the SQL of each table: `bronze_<t>` / `silver_<t>` is a dependency on the previous layer, the name of another table of the same layer is a dependency inside the layer |
+| Criticality | the contract: `customProperties: [{property: critical, value: true}]` |
+
+Nothing else is declared: the SQL is already the definition of the dependencies, so a second list
+could only drift from it. `test_lineage.py` checks that the dependencies on the previous layer are
+covered by the `inputs` of the table registry (the ones pinned and recorded in `pipeline_run_step`),
+that the graph has no cycle, and that `lineage.md` is up to date.
+
+Critical tables are the Gold tables that feed a P0 KPI directly (`data-product.md`):
+`fact_reconciliation_result`, `fact_reconciliation_run`, `fact_transaction`,
+`fact_transaction_event` (the transaction trail, C1), `agg_reconciliation_daily`,
+`agg_amount_at_risk_daily`, `agg_volume_daily`. Everything upstream
+of them is derived as "feeds a critical table", so a contract declares criticality once, where the
+consumer is.
+
+Impact of a failure, for triage:
+
+```bash
+python -m etl_jobs.observability.lineage --impact silver.settlements
+# silver.settlements affects 16 tables: ...
+# Critical tables affected: gold.agg_amount_at_risk_daily, ...
+```
+
+Limits: table-level lineage only (no column lineage, which would need a SQL parser); the
+dependencies come from name matching in the SQL, which is reliable here because every input is a
+named view or temp table, but a table name used as a column alias would create a false edge.

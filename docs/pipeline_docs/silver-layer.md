@@ -180,7 +180,8 @@ nothing lost in deduplication): if they fail, the transformation is wrong and pu
 corrupt the tables. `warn` checks describe the quality of the source data (the service categories,
 orphan runs, totals): Silver does not correct them, it exposes them, and blocking on them would
 leave Operations without dashboards because of upstream data. Recomputing the reconciliation from
-transactions and settlements, to compare with the service verdicts, is left for Gold.
+transactions and settlements, to compare with the service verdicts, is done in Gold
+(`audit_reconciliation_recheck`, see [`gold-layer.md`](gold-layer.md)).
 
 What the checks found on the data:
 
@@ -192,13 +193,14 @@ What the checks found on the data:
 ## 8. Extending Silver
 
 - **A new Silver table:** add `sql/<table>.sql`, `contracts/<table>.yml` and an entry in
-  `SILVER_TABLES` (`etl_jobs/silver/tables.py`) with its Bronze inputs, partition column and
-  lookback. Order matters: a table can read the temp tables computed before it. Add its Z-order
+  `SILVER_TABLES` (`etl_jobs/silver/tables.py`), a `LayerTable` with its Bronze inputs, partition
+  column and lookback. The compute, check and publish code is shared with Gold
+  (`src/common/layer_build.py`). Order matters: a table can read the temp tables computed before it. Add its Z-order
   columns in `SILVER_ZORDER` (`etl_jobs/maintenance/optimize_tables.py`).
 - **A second settlement processor:** `settlements` already has a `processor` column in its key.
   The new processor needs its Bronze contract and dataset (Bronze path), then a `UNION ALL` branch
   in `settlements.sql` that maps its columns to the same output, plus its name in the
-  `bronze_inputs` of the `settlements` entry. Contracts, checks and downstream tables do not change.
+  `inputs` of the `settlements` entry. Contracts, checks and downstream tables do not change.
 - **A new check:** add an entry to `quality_checks.yml` (`name`, `table`, `severity`, `query`,
   optional `threshold`, `type`, `description`).
 

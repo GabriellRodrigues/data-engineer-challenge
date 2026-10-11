@@ -1,6 +1,6 @@
 ---
 name: troubleshooting
-description: Diagnose a failure or a data problem in the data-engineer-challenge pipeline (Bronze, Silver, maintenance, health report) starting from the error a job returned or from a symptom in the tables (missing data, wrong counts, duplicates, alerts, quarantined or refused rows) - locate where it happened with the observability tables and the Delta state, match it to a known cause, propose the fix and verify it. Use when the user pastes a traceback/log line, says a job failed, or says a table or dashboard looks wrong.
+description: Diagnose a failure or a data problem in the data-engineer-challenge pipeline (Bronze, Silver, Gold, maintenance, health report) starting from the error a job returned or from a symptom in the tables (missing data, wrong counts, duplicates, alerts, quarantined or refused rows) - locate where it happened with the observability tables and the Delta state, match it to a known cause, propose the fix and verify it. Use when the user pastes a traceback/log line, says a job failed, or says a table or dashboard looks wrong.
 allowed-tools: Bash(uv *) Bash(make *) Bash(docker compose exec *) Bash(ls *) Bash(find *) Bash(du *) Bash(cat *) Read Glob Grep Edit
 ---
 
@@ -12,12 +12,12 @@ message alone when the observability tables or the Delta logs can confirm it.
 
 | Input | Starting point |
 |---|---|
-| Traceback or `ERROR` log line from `bronze.ingest`, `silver.build`, `maintenance.optimize`, `observability.report` | §2 environment, then §4 known errors |
+| Traceback or `ERROR` log line from `bronze.ingest`, `silver.build`, `gold.build`, `maintenance.optimize`, `observability.report` | §2 environment, then §4 known errors |
 | `WARNING` lines / alerts in the log or in the health report | §5 alerts and checks |
 | "The table/dashboard is empty, stale, has too many/too few rows, duplicated rows, nulls" | §6 data symptoms |
 | Exit code 1 with no traceback | the run failed by a blocking alert or data quality check: §3, then §5 |
 
-Write down from the input: job, step (`ingest:<file>`, `compute:<table>`, `quality:silver`,
+Write down from the input: job, step (`ingest:<file>`, `compute:<table>`, `quality:silver`, `quality:gold`,
 `publish:<table>`, `optimize:<table>`), table, file, run_id and time, when present.
 
 ## 2. Where did it run
@@ -26,7 +26,7 @@ Some failures depend only on the environment. Find out before reading code:
 
 - **Log timezone.** In the container and in WSL the logs are in UTC; in a Windows terminal they
   are in local time. Compare the log time with `started_at` in `pipeline_run` (stored in UTC).
-- **`make bronze|silver|optimize|reprocess|report|test`** run inside the container
+- **`make bronze|silver|gold|pipeline|queries|optimize|reprocess|report|test`** run inside the container
   (`docker compose exec pipeline ...`); `uv run python -m ...` runs on the host.
 - **Windows + container (or WSL on `/mnt/c`)**: `./data` is a 9p/drvfs mount. Large Parquet writes
   fail there (see the first row of §4).
@@ -102,7 +102,10 @@ Each commit written by a job carries `run_id` (and, in Silver, `mode`, `scope`,
 | `SchemaContractError: Schema does not match data contract '<name>'` (`column ... has type ...`, missing required column) | `ingest:<file>` | The producer changed the file (type, renamed or removed column) | Confirm with the profile of the file; if the change is legitimate, bump the contract `version` and update it (docs in `data-contracts.md`); if not, it is a producer issue. The other files of the run continue |
 | `SchemaContractError: ... column '<c>' is not declared in the contract` | `publish:<table>` (Silver) | A Silver SQL in `etl_jobs/silver/sql/` outputs a column missing from `etl_jobs/silver/contracts/<table>.yml` | Add the column to the contract or remove it from the SQL |
 | `FileNotFoundError: Bronze table '<name>' not found at ...` | `silver.build` | Bronze not ingested, or the Bronze table folder has no `_delta_log` (see the first row) | Run Bronze; check the Delta state (§3) |
-| `Blocking data quality checks failed: <checks>; nothing was published` | `quality:silver` | An `error` check in `quality_checks.yml` or a contract `unique`/`not_null` failed. Silver kept its previous version | Query 3 in §3, then the check's SQL against the temp logic (§6 has the usual causes). Fix the data path, not the check |
+| `FileNotFoundError: Silver table '<name>' not found at ...` | `gold.build` | Silver never built, or its folder has no `_delta_log` | Run Silver (`make pipeline` runs the layers in order) |
+| `SchemaContractError: ... column '<c>' is not declared in the contract` | `publish:<table>` (Gold) | A Gold SQL in `etl_jobs/gold/sql/` outputs a column missing from `etl_jobs/gold/contracts/<table>.yml` | Add the column to the contract or remove it from the SQL |
+| `Query <consumer>/<name> failed` | `run_queries` | An example query references a Gold column or table that changed | Fix the query; `test_run_queries.py` should have caught it |
+| `Blocking data quality checks failed: <checks>; nothing was published` | `quality:silver` / `quality:gold` | An `error` check in the layer's `quality_checks.yml` or a contract `unique`/`not_null` failed. The layer kept its previous version | Query 3 in §3, then the check's SQL against the temp logic (§6 has the usual causes). Fix the data path, not the check |
 | `Blocking alerts raised; see pipeline_alerts` | any job | An `error` alert rule fired (`refused_rate_high`, `no_rows_accepted`, `settlement_file_overdue`, `reconciliation_run_overdue`) | §5 |
 | `Ingestion failed for: <files>` / `Maintenance failed for: <tables>` | run summary | Only the summary; one or more steps failed | Read the failed steps (query 2) and the first traceback for each |
 | `Files to reprocess not found in ...` | `make reprocess` | `FILES` does not match a path relative to `data/landing` | `ls data/landing` and use the relative path |
@@ -119,8 +122,8 @@ in the scratchpad) before proposing a cause.
 ## 5. Alerts and checks
 
 Rules are in `etl_jobs/observability/alert_rules.yml`; checks in `etl_jobs/silver/quality_checks.yml`
-plus `unique`/`not_null` derived from the Silver contracts. `observability.md` §5 and
-`silver-layer.md` explain each one.
+and `etl_jobs/gold/quality_checks.yml`, plus `unique`/`not_null` derived from the contracts.
+`observability.md` §5, `silver-layer.md` and `gold-layer.md` explain each one.
 
 | Signal | What to look at | Usual cause |
 |---|---|---|
@@ -133,11 +136,13 @@ plus `unique`/`not_null` derived from the Silver contracts. `observability.md` �
 | `results_quarantined`, `relationships:*` | `silver.reconciliation_results_quarantine` | Results whose `run_id` has no run |
 | `run_total_coherence`, `category_coherence`, `merchant_unknown` | the check SQL in `quality_checks.yml` | Data produced by the reconciliation service; reported, not corrected |
 | `row_conservation:*` (error) | Bronze latest-load count vs Silver + duplicates + quarantine | A join or filter in the Silver SQL that drops or multiplies rows |
+| `row_conservation:fact_*`, `sum_conservation:agg_*` (Gold, error) | Silver count/sum vs the Gold fact or aggregate | A Gold join that fans out (e.g. a dimension joined without the SCD2 `valid_at` filter) or a filter that drops rows |
+| `discrepancy_rate_spike`, `reconciliation_runs_missing`, `missing_run:*`, `reconciliation_recheck:*` (Gold, warn) | `gold.agg_reconciliation_daily`, `gold.audit_reconciliation_recheck` | Business signals from the reconciliation service, not pipeline defects: a worse run, a failed or absent run, verdicts that do not follow the rules |
 | `one_current_version:merchants` (error) | `SELECT merchant_id, count(*) FROM silver.merchants WHERE is_current GROUP BY 1 HAVING count(*) > 1` | SCD2 logic or CDC ties in `enterprise_company` |
 
 ## 6. Data symptoms
 
-Walk the chain backwards until the numbers stop matching: **landing → Bronze → Silver**, for the
+Walk the chain backwards until the numbers stop matching: **landing → Bronze → Silver → Gold**, for the
 same date or key.
 
 ```sql
@@ -150,7 +155,7 @@ FROM silver.<table> GROUP BY 1 ORDER BY 1 DESC LIMIT 10;
 
 | Symptom | Check, in order |
 |---|---|
-| **No data since date X** (README Part 3.2) | 1) query 4: did the jobs run after X, and did they succeed? 2) did files for dates after X arrive in `data/landing` (`arrival_lag_hours`, overdue alerts)? 3) `reconciliation_runs` after X: `FAILED`, stuck `IN_PROGRESS`, or missing (`run_stuck`, `no_reconciliation_results`)? 4) Silver partitions after X exist (query above) and the last `publish:` steps succeeded? Stop at the first layer where data is missing; that layer owns the problem |
+| **No data since date X** (README Part 3.2) | 1) query 4: did the jobs run after X, and did they succeed? 2) did files for dates after X arrive in `data/landing` (`arrival_lag_hours`, overdue alerts)? 3) `reconciliation_runs` after X: `FAILED`, stuck `IN_PROGRESS`, or missing (`run_stuck`, `no_reconciliation_results`)? 4) Silver partitions after X exist (query above) and the last `publish:` steps succeeded? 5) Gold: `gold.build` ran after the last Silver run, `agg_reconciliation_daily` has the dates (`is_missing_run`)? Stop at the first layer where data is missing; that layer owns the problem |
 | Fewer rows than expected | refused rows in `<dataset>_refused`; Silver dedup (`duplicates_removed`); quarantine; `is_deleted` rows filtered by the consumer; a file skipped because its hash was already ingested |
 | More rows / duplicates | a file loaded twice under **different names** (dedup is by content hash + latest load per `_source_file`); a query summing across runs (a transaction appears in several runs by design, `data-product.md` §3) |
 | Old values in Silver after a fix in the source | Bronze still skipping the file (same hash): use `make reprocess`; or Silver not rebuilt for that date |

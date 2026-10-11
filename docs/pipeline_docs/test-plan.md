@@ -1,6 +1,6 @@
 # Test plan
 
-How to validate that the pipeline (Bronze and Silver) behaves as documented: automated tests, an
+How to validate that the pipeline (Bronze, Silver and Gold) behaves as documented: automated tests, an
 end-to-end smoke test with known expected numbers, idempotency and failure scenarios, and a scale
 test with recorded results. Run the automated tests on every change; run the other sections
 before a delivery or after changing a job, a contract or a check.
@@ -18,17 +18,21 @@ make test                      # in the container
 uv run --extra dev pytest      # on the host
 ```
 
-174 tests, mirrored on the path of the module they cover (`tests/src/...`, `tests/etl_jobs/...`).
+280 tests, mirrored on the path of the module they cover (`tests/src/...`, `tests/etl_jobs/...`).
 Every test writes to `tmp_path` and never touches `data/`.
 
 | Area | Test files | Tests | What is covered |
 |---|---|---|---|
-| Bronze job | `tests/etl_jobs/bronze/test_ingest_to_bronze.py` | 30 | idempotency by hash, reprocess, dead letter table, schema breaks, dataset naming, metrics and alerts |
+| Bronze job | `tests/etl_jobs/bronze/test_ingest_to_bronze.py` | 32 | idempotency by hash, reprocess, dead letter table, schema breaks, dataset naming, metrics and alerts |
+| Gold job | `tests/etl_jobs/gold/test_build_gold.py` | 23 | dimensional model on a hand-checked Silver fixture: CNPJ masked and unknown member, merchant version valid at the transaction (SCD2), one reference run per date, rates, cadence and missing runs, trend baseline, amount at risk per currency, current reconciliation status, exposure, aging, resolution, changes after reconciliation, recheck outcomes, **same date twice = same content as a full rebuild**, a date run touches only its partitions, blocking check stops the publish, business metrics and alerts, empty Silver, missing Silver table, CLI validation |
+| Example queries | `tests/etl_jobs/gold/test_run_queries.py` | 23 | every shipped query runs against a Gold built from the fixture; key answers (trend dates, transaction trail, TPV); discovery per consumer; Markdown output; a failing query exits 1 |
+| Shared layer build | `tests/src/common/test_layer_build.py` | 16 | date scope with lookback, table registry, contract conform (order, optional columns, undeclared columns, wrong types), macros, run stamping, CLI dates, job wrapper (failed and date-mode runs) |
 | Silver job | `tests/etl_jobs/silver/test_build_silver.py` | 23 | parsing (3 amount formats, timestamps without timezone), CDC tie-break, deletes, SCD2, quarantine, latest load per file, **same date twice = same content**, a date run touches only its partitions, 7-day window, blocking check stops the publish, pinned Bronze versions, CLI validation |
-| Data contracts | `tests/src/data_contract/*` | 36 | contract files (all Bronze and Silver contracts are valid), schema enforcement and new types, record rules |
+| Data contracts | `tests/src/data_contract/*` | 51 | contract files (all Bronze, Silver and Gold contracts are valid), schema enforcement and new types, record rules |
 | Data quality | `tests/src/data_quality/test_checks.py` | 15 | unique / not_null / contract-driven checks, severity and threshold, broken queries, persistence in `dq_results` |
 | Delta I/O and maintenance | `tests/src/common/*`, `tests/etl_jobs/maintenance/*` | 15 | partition replace, empty scope, writes outside the predicate refused, pinned reads, optimize/vacuum |
-| Observability | `tests/src/observability/*`, `tests/etl_jobs/observability/*` | 29 | run/step registry, metrics, alert rules, report |
+| Observability | `tests/src/observability/*`, `tests/etl_jobs/observability/test_health_report.py` | 35 | run/step registry, metrics, alert rules, report, critical tables left stale by a failed run |
+| Lineage | `tests/src/lineage/test_graph.py`, `tests/etl_jobs/observability/test_lineage.py` | 21 | SQL references, transitive walks, criticality from the contract, Mermaid output, SQL agrees with the declared inputs, no cycles, **committed `lineage.md` is up to date**, impact CLI |
 | Utilities, generator, UI | `tests/src/utils/*`, `tests/scripts/*`, `tests/test_run_duckdb_ui.py` | 26 | paths, logger, YAML reader, synthetic generator, DuckDB UI views |
 
 **Pass criterion:** all tests green. Lint with `uv run ruff check etl_jobs src tests` (a few
@@ -37,14 +41,17 @@ work).
 
 ## 2. End-to-end smoke test on the challenge sample
 
-Runs both layers on `docs/sample-data` and compares with numbers verified by hand. It uses a clean
-Bronze, Silver and observability; everything under `data/` is generated and reproducible.
+Runs the three layers on `docs/sample-data` and compares with numbers verified by hand. It uses a
+clean Bronze, Silver, Gold and observability; everything under `data/` is generated and
+reproducible.
 
 ```bash
 make up
-rm -rf data/bronze data/silver data/observability
+rm -rf data/bronze data/silver data/gold data/observability
 docker compose exec -e DATA_PATH=/app/docs/sample-data pipeline python -m etl_jobs.bronze.ingest_to_bronze
 make silver
+make gold
+make queries
 ```
 
 **Expected results**
@@ -70,6 +77,36 @@ Silver categories: 685 `MATCHED`, 59 `MISMATCHED`, 25 `UNRECONCILED_PROCESSOR`, 
 Alerts: `results_quarantined` and `settlement_duplicates` warn. Verify with the queries of
 section 5.
 
+**Expected Gold results**
+
+| Table | Rows | Why |
+|---|---|---|
+| `dim_date` | 31 | 2025-03-01 to 2025-03-31 |
+| `dim_category` | 4 | static |
+| `dim_merchant` | 63 | 62 Silver versions + `UNKNOWN` |
+| `fact_reconciliation_run` | 10 | one per run; 9 reference runs (run 7 failed) |
+| `fact_reconciliation_result` | 788 | one per Silver result |
+| `fact_transaction_event` / `fact_transaction` | 1060 / 1000 | one per Silver event / transaction |
+| `fact_settlement` | 500 | one per Silver settlement |
+| `audit_reconciliation_recheck` | 544 | run 5 (2025-03-16, the only date with a settlement file): its 93 verdicts plus the 500 lines of the CSV |
+| `agg_reconciliation_daily` | 28 | 2025-03-04 to 2025-03-31; cadence 3 days, 10 expected dates, 1 missing (2025-03-22) |
+| `agg_amount_at_risk_daily` | 9 | 9 reference runs, all BRL |
+| `agg_volume_daily` | 83 | 30 days × 3 statuses, minus empty combinations |
+| `agg_settlement_daily` | 1 | 2025-03-16, BRL: 473 settled, 27 reversed |
+
+KPIs: discrepancy rate between 11.36% and 14.58% per run; COMPLETED volume R$ 21,124,903.04 in
+March. The answers of every example query are in [`analytics.md`](analytics.md).
+
+| Gold check | Expected status |
+|---|---|
+| every `error` check | `pass` (the run ends `success`) |
+| `missing_run:agg_reconciliation_daily` | `warn`, 1 row (2025-03-22) |
+| `reconciliation_recheck:audit_reconciliation_recheck` | `warn`, 544 rows ([`gold-layer.md`](gold-layer.md), section 3) |
+| any other check | `pass` |
+
+Gold alerts: `reconciliation_runs_missing` warns; `discrepancy_rate_spike` passes (the latest
+deviation is −2.08 p.p.).
+
 ## 3. Idempotency and failure scenarios
 
 Start from the state of section 2 (or of `make generate` + `make bronze` + `make silver`). Each
@@ -88,6 +125,10 @@ test that asserts the same behavior.
 | 8 | Silver before Bronze | `rm -rf data/bronze` and `make silver` | run `failed` with `Bronze table '<name>' not found`; nothing published | `pipeline_run.error` | `test_missing_bronze_table_fails_the_run` |
 | 9 | Invalid CLI dates | `python -m etl_jobs.silver.build_silver --start-date 2025-03-10 --end-date 2025-03-01` | usage error, exit code 2, no run recorded | console | `test_invalid_date_arguments_are_rejected` |
 | 10 | Contract break in a source | rename a column in a source file and `make bronze` | the file fails with `SchemaContractError`; other files continue; run `failed` | `pipeline_run_step.error` | Bronze schema tests |
+| 11 | Gold, same date twice / full vs dates | `make gold`, then `make gold REFERENCE_DATE=2025-03-16` twice, then a range run | every Gold table has the same content as the full rebuild (query 5.3 on `gold.*`, excluding `_gold_run_id` and `_gold_built_at`) | query 5.3 | `test_rerun_for_the_same_reference_date_is_idempotent` |
+| 12 | Gold date run does not touch other dates | remove the results of one run in Silver, run Gold for another date, then for the run's date | the run's rows stay until its own date runs | query 5.4 on `gold.fact_reconciliation_result` | `test_reference_date_run_only_replaces_its_partitions` |
+| 13 | Gold before Silver | `rm -rf data/silver` and `make gold` | run `failed` with `Silver table '<name>' not found`; nothing published | `pipeline_run.error` | `test_missing_silver_table_fails_the_run` |
+| 14 | Broken example query | change a column used by a query in `etl_jobs/gold/queries/` | `make queries` logs the failing query and exits 1; `make test` fails | console | `test_shipped_query_runs_against_gold`, `test_failing_query_exits_with_error` |
 
 ## 4. Scale test
 
@@ -119,6 +160,8 @@ time uv run python -m etl_jobs.bronze.ingest_to_bronze
 uv run python -m etl_jobs.maintenance.optimize_tables
 time uv run python -m etl_jobs.silver.build_silver
 time uv run python -m etl_jobs.silver.build_silver --reference-date 2025-03-16
+time uv run python -m etl_jobs.gold.build_gold
+time uv run python -m etl_jobs.gold.build_gold --reference-date 2025-03-16
 ```
 
 Cloning the repository inside the WSL2 filesystem (`\\wsl$\<distro>\home\...`) and running Docker
@@ -142,8 +185,8 @@ Durations per step are in `pipeline_run_step.duration_s` (query 5.5).
   doing its job (the volume jumped by an order of magnitude); the pipeline simply does not know the
   change is intentional. Deleting `data/observability` too avoids it, at the cost of losing the run
   history. Later runs do not repeat it, because ingested files are skipped by hash.
-- `too_many_files` (warn) on the partitioned Silver tables: with 90 days they have ~90 files (one
-  per partition) even after optimize. The rule counts files of the whole table, which fits the
+- `too_many_files` (warn) on the partitioned Silver and Gold tables: with 90 days they have ~90
+  files (one per partition) even after optimize. The rule counts files of the whole table, which fits the
   unpartitioned Bronze but not partitioned tables.
 
 **Recorded results**
@@ -160,11 +203,64 @@ deviation warnings.
 | 1M / 90 days | maintenance | 10.0 s | 0.9 GiB | first optimize after ingestion |
 | 1M / 90 days | Silver full | 25.2 s | **3.2 GiB** | compute 8.3 s, checks 1.8 s, publish 3.8 s; the rest is reading Bronze and table metrics |
 | 1M / 90 days | Silver one date | 18.4 s | 2.4 GiB | compute 6.6 s, publish 0.5 s |
-| 5M / 30 days | | not run yet | | |
+| 1M / 90 days | Gold full | 74.4 s | **3.9 GiB** | compute 20.3 s, checks 2.1 s, publish 5.6 s; the rest is reading Silver and table metrics |
+| 1M / 90 days | Gold one date | 59.0 s | 2.8 GiB | compute 18.7 s, publish 1.3 s |
+| 1M / 90 days | example queries | 23.0 s | | all 17 queries |
+| 5M / 30 days | all jobs | see the end-to-end table below | | |
 
-Storage at 1M: Bronze 310 MB, Silver 490 MB. Data quality at 1M: all `error` checks pass;
+Storage at 1M: Bronze 310 MB, Silver 490 MB, Gold 372 MB (current version; the four large facts
+and the recheck take ~60–80 MB each, aggregates a few MB). Data quality at 1M: all `error` checks pass;
 `run_total_coherence` warns on 90 runs and `relationships:reconciliation_results.transaction_id`
-on 95 results (transactions refused by the Bronze contract).
+on 95 results (transactions refused by the Bronze contract). Gold at 1M: all `error` checks pass,
+including row and sum conservation; `currency_unknown` warns on 3 verdicts and
+`reconciliation_recheck` on 7,555 of 1,003,000 rows (99.5% of the service verdicts agree with the
+recomputation; [`gold-layer.md`](gold-layer.md), section 3).
+
+The first version of the recheck listed every internal transaction of each 7-day window: 7.7M rows
+(505 MB) for 1M transactions, 6.66M of them transactions the service simply judges in another run.
+The scale test is what showed it; the recheck is now limited to the transactions the service judged
+or the processor sent.
+
+**End-to-end runs per source scale** (2026-10-11, commit `df74e30-dirty`, fresh Bronze, Silver,
+Gold and observability for each level). Sample and 10k run in the container through `make`; 1M and
+5M run on the host (9p limitation above). Memory is the peak working set of the job process; the
+value in parentheses is the peak committed memory (RAM + page file).
+
+| Level | Source | Bronze | Silver | Gold full | Gold one date | Queries | Result |
+|---|---|---|---|---|---|---|---|
+| sample | `docs/sample-data` (1k) | 2.0 s | 8.9 s* | 14.2 s* | | 2.0 s | identical to section 2 |
+| small | `make generate` (10k, 30 days) | 14.2 s | 11.3 s* | 17.1 s* | | 2.8 s | all `error` checks pass; 4 dates without a run detected (the generator has no run for them); recheck agrees on 99.5% |
+| large | `make generate-large` (1M, 90 days) | 22.5 s, 1.0 GiB | 20.6 s, 3.1 GiB | 34.5 s, 4.1 GiB (6.3) | 25.5 s, 2.7 GiB | 10.3 s | all `error` checks pass; recheck agrees on 99.5% (7,555 differences) |
+| README volume | generator, 5M, 30 days | 36.2 s, 3.3 GiB (6.3) | 77.1 s, 8.0 GiB (**16.8**) | 155.8 s, 7.9 GiB (**20.6**) | 118.6 s, 8.3 GiB (13.4) | 9.0 s | all `error` checks pass; recheck agrees on 99.5% (38,162 differences); `discrepancy_rate_spike` fired (see below) |
+
+\* includes the maintenance run by `make silver` / `make gold`.
+
+Storage at 5M (current Delta versions): Bronze 954 MB, Silver 1.24 GB, Gold 1.51 GB; source files
+1.2 GB. Maintenance: 33–35 s per run.
+
+Findings of these runs:
+
+- **5M/month completes on a 15.7 GiB host, at its limit.** Silver and Gold commit 16.8 and 20.6 GiB:
+  more than the RAM, so Windows pages to disk. Working set grows less than linearly (3.1 → 8.0 GiB
+  for 5× the data), but the committed memory is what a container limit would kill (Docker Desktop
+  has 8 GiB here). The README growth target (~5M per **day**) is 30× this volume: the in-memory
+  "whole layer per run" design does not reach it; partition pruning on read and `MERGE` are required
+  (`silver-layer.md` and `gold-layer.md`, section 9).
+- **A one-date Gold run costs ~75% of a full one** (118.6 s vs 155.8 s), because it computes the
+  whole layer and only publishes less.
+- **`discrepancy_rate_spike` fired at 5M on 2025-04-14**, with +7.5 p.p. That date has 89 results
+  against thousands on normal days: the generator stops creating transactions after day 30, and the
+  last runs only see late settlements. **Fixed:** a date is only compared when it has at least half
+  of the median result count of the previous 28 dates (`is_comparable_volume`), and non-comparable
+  dates no longer enter the rate baseline. A first version used the median of only the previous 5
+  dates and drifted down with the tail (at 10k, 2-result dates became comparable again and showed
+  +46 p.p.); the 28-date volume baseline fixed it. At 10k the whole April tail is now "low volume",
+  while a real spike at normal volume (2025-03-25, +7.3 p.p.) is still detected.
+- **Git Bash rewrites container paths.** The first sample run used `-e DATA_PATH=/app/docs/sample-data`
+  from Git Bash, which became a Windows path: Bronze read nothing and ended `success`, and only
+  Silver failed. Use `MSYS_NO_PATHCONV=1` (user guide, troubleshooting). **Fixed in Bronze:** a
+  source folder that does not exist now stops the job with exit code 1 before anything is written
+  (an existing empty folder is still a valid run, e.g. a rerun with nothing new).
 
 **Reading the numbers**
 
@@ -176,6 +272,9 @@ on 95 results (transactions refused by the Bronze contract).
   computes the whole layer. The fix is the one listed in `silver-layer.md` (section 9): partitioned
   Bronze with `[D − 7, D]` pruning on read, and `MERGE` for the current-state tables.
 - Bronze loads each file whole into memory; at 1M it peaks at ~1.1 GiB.
+- Gold has the same shape as Silver and is the heaviest job (3.9 GiB at 1M): it reads all of Silver
+  and keeps every fact in memory before publishing. Partition pruning on the Silver read and
+  `MERGE` into `fact_transaction` are the same fix (`gold-layer.md`, section 9).
 
 ## 5. Verification queries
 
