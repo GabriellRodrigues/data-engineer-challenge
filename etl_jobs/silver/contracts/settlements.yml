@@ -1,0 +1,36 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.silver.settlements
+name: settlements
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Settlement files of the external processors, typed and normalized; one processor today (PaySettler).
+  usage: Settled and reversed volume for the CFO and the processor side of the reconciliation.
+  limitations: reference_date comes from the file name; files without a date in the name use the latest settled_at date of the file.
+schema:
+  - name: settlements
+    physicalName: settlements
+    physicalType: table
+    logicalType: object
+    description: One row per settlement line per reference_date; partitioned by reference_date.
+    properties:
+      - {name: processor, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 1, description: Processor that sent the file.}
+      - {name: reference_date, logicalType: date, physicalType: date, required: true, primaryKey: true, primaryKeyPosition: 2, description: Business date the file refers to; partition column.}
+      - {name: transaction_id, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 3, description: Transaction UUID shared with the internal system.}
+      - {name: processor_reference, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 4, description: Internal reference of the processor.}
+      - {name: merchant_id, logicalType: string, physicalType: varchar, required: true, description: Merchant identifier in upper case.}
+      - {name: amount, logicalType: number, physicalType: "decimal(18,2)", required: true, description: "Settled amount parsed from dot decimal, comma decimal or BRL format."}
+      - {name: amount_raw, logicalType: string, physicalType: varchar, required: true, description: Amount exactly as received in the file.}
+      - {name: currency, logicalType: string, physicalType: varchar, required: true, description: ISO 4217 currency code.}
+      - {name: status, logicalType: string, physicalType: varchar, required: true, description: SETTLED or REVERSED.}
+      - {name: settled_at, logicalType: date, physicalType: timestamp, required: true, description: Settlement time (UTC); values without timezone are read as UTC.}
+      - {name: settled_date, logicalType: date, physicalType: date, required: true, description: UTC date of settled_at.}
+      - {name: is_reversed, logicalType: boolean, physicalType: boolean, required: true, description: True for REVERSED lines.}
+      - {name: _source_file, logicalType: string, physicalType: varchar, required: true, description: Source file of the Bronze row.}
+      - {name: _bronze_run_id, logicalType: string, physicalType: varchar, required: true, description: Bronze run that loaded the row (lineage only).}
+      - {name: _bronze_ingested_at, logicalType: date, physicalType: timestamp, required: true, description: When the row was loaded into Bronze.}
+      - {name: _silver_run_id, logicalType: string, physicalType: varchar, required: true, description: Silver run that published the row.}
+      - {name: _silver_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Silver run computed the row.}

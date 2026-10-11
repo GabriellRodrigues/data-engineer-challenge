@@ -1,0 +1,36 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.silver.merchants
+name: merchants
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Merchant registry as a type 2 slowly changing dimension built from the enterprise_company CDC.
+  usage: Merchant names and CNAE segment for Operations and the CFO; point-in-time registry for Compliance (C4).
+  limitations: valid_from is the CDC event time. document holds the raw CNPJ (digits only) and must be masked before reaching broad audiences.
+schema:
+  - name: merchants
+    physicalName: merchants
+    physicalType: table
+    logicalType: object
+    description: One row per merchant version; the version is valid in [valid_from, valid_to).
+    properties:
+      - {name: merchant_id, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 1, description: Merchant identifier in upper case.}
+      - {name: valid_from, logicalType: date, physicalType: timestamp, required: true, primaryKey: true, primaryKeyPosition: 2, description: Start of validity (CDC event time, UTC).}
+      - {name: valid_to, logicalType: date, physicalType: timestamp, required: false, description: End of validity; null for the latest version.}
+      - {name: is_current, logicalType: boolean, physicalType: boolean, required: true, description: True for the version valid now (not deleted).}
+      - {name: is_deleted, logicalType: boolean, physicalType: boolean, required: true, description: True when this version records a delete in the source.}
+      - {name: source_id, logicalType: integer, physicalType: bigint, required: true, description: Surrogate key in the source database.}
+      - {name: legal_name, logicalType: string, physicalType: varchar, required: true, description: Legal name (razão social).}
+      - {name: trade_name, logicalType: string, physicalType: varchar, required: false, description: Trade name (nome fantasia).}
+      - {name: document, logicalType: string, physicalType: varchar, required: true, description: CNPJ digits; sensitive.}
+      - {name: primary_cnae, logicalType: string, physicalType: varchar, required: false, description: Main CNAE code.}
+      - {name: created_at, logicalType: date, physicalType: timestamp, required: true, description: Registry creation time in the source (UTC).}
+      - {name: updated_at, logicalType: date, physicalType: timestamp, required: true, description: Last update in the source (UTC).}
+      - {name: _source_file, logicalType: string, physicalType: varchar, required: true, description: Source file of the Bronze row.}
+      - {name: _bronze_run_id, logicalType: string, physicalType: varchar, required: true, description: Bronze run that loaded the row (lineage only).}
+      - {name: _bronze_ingested_at, logicalType: date, physicalType: timestamp, required: true, description: When the row was loaded into Bronze.}
+      - {name: _silver_run_id, logicalType: string, physicalType: varchar, required: true, description: Silver run that published the row.}
+      - {name: _silver_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Silver run computed the row.}

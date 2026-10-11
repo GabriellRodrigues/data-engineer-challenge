@@ -1,4 +1,4 @@
-.PHONY: help up down build shell logs test bronze reprocess optimize report ui generate generate-large clean
+.PHONY: help up down build shell logs test bronze reprocess silver optimize report ui generate generate-large clean
 .DEFAULT_GOAL := help
 
 COMPOSE := docker compose
@@ -33,6 +33,10 @@ bronze: ## Ingest sample data into the Bronze layer (idempotent), then run table
 reprocess: ## Re-ingest specific files into Bronze, replacing their rows, then run table maintenance (FILES="a.parquet b.parquet" REASON="...")
 	@test -n "$(FILES)" || (echo 'Usage: make reprocess FILES="transactions_batch_1.parquet" REASON="why"' && exit 1)
 	$(PIPELINE) python -m etl_jobs.bronze.ingest_to_bronze --reprocess $(FILES) $(if $(REASON),--reason "$(REASON)")
+	$(PIPELINE) python -m etl_jobs.maintenance.optimize_tables
+
+silver: ## Build the Silver layer from Bronze (full rebuild, or REFERENCE_DATE=YYYY-MM-DD for one date), then run table maintenance
+	$(PIPELINE) python -m etl_jobs.silver.build_silver $(if $(REFERENCE_DATE),--reference-date $(REFERENCE_DATE))
 	$(PIPELINE) python -m etl_jobs.maintenance.optimize_tables
 
 optimize: ## Compact/Z-order Delta tables, vacuum expired files and clean up the log

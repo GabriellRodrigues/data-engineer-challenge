@@ -12,7 +12,9 @@ def dirs(tmp_path, monkeypatch):
     observability_dir = tmp_path / "observability"
     monkeypatch.setattr(optimize_tables, "BRONZE_DIR", bronze_dir)
     monkeypatch.setattr(optimize_tables, "OBSERVABILITY_DIR", observability_dir)
+    monkeypatch.setattr(optimize_tables, "SILVER_DIR", tmp_path / "silver")
     monkeypatch.setattr(optimize_tables, "BRONZE_ZORDER", {"orders": ["id"], "missing": None})
+    monkeypatch.setattr(optimize_tables, "SILVER_ZORDER", {})
     return bronze_dir, observability_dir
 
 

@@ -6,13 +6,14 @@ from deltalake import DeltaTable
 from src.common.delta_maintenance import maintain_table
 from src.observability.run_registry import FAILED, SKIPPED, RunContext, pipeline_run
 from src.observability.store import (
+    DQ_RESULTS,
     PIPELINE_ALERTS,
     PIPELINE_METRICS,
     PIPELINE_RUN,
     PIPELINE_RUN_STEP,
 )
 from src.utils.logger import get_logger
-from src.utils.paths import BRONZE_DIR, OBSERVABILITY_DIR
+from src.utils.paths import BRONZE_DIR, OBSERVABILITY_DIR, SILVER_DIR
 
 logger = get_logger("maintenance.optimize")
 
@@ -29,11 +30,22 @@ BRONZE_ZORDER = {
     "enterprise_company": None,
 }
 
+SILVER_ZORDER = {
+    "transactions_history": ["transaction_id"],
+    "transactions": ["transaction_id"],
+    "settlements": ["transaction_id"],
+    "reconciliation_runs": None,
+    "reconciliation_results": ["transaction_id"],
+    "reconciliation_results_quarantine": None,
+    "merchants": None,
+}
+
 OBSERVABILITY_ZORDER = {
     PIPELINE_RUN: None,
     PIPELINE_RUN_STEP: None,
     PIPELINE_METRICS: None,
     PIPELINE_ALERTS: None,
+    DQ_RESULTS: None,
 }
 
 
@@ -63,6 +75,7 @@ def main():
         failed = []
         for layer, layer_dir, tables in (
             ("bronze", BRONZE_DIR, BRONZE_ZORDER),
+            ("silver", SILVER_DIR, SILVER_ZORDER),
             ("observability", OBSERVABILITY_DIR, OBSERVABILITY_ZORDER),
         ):
             failed += maintain(run, layer, layer_dir, tables)
