@@ -68,3 +68,30 @@ rules:
     operator: ">"
     value: 24
     severity: warn
+
+  - name: results_quarantined
+    type: threshold
+    metric: rows_out
+    layer: silver
+    table_name: reconciliation_results_quarantine
+    operator: ">"
+    value: 0
+    severity: warn
+
+  - name: no_reconciliation_results
+    type: threshold
+    metric: rows_out
+    layer: silver
+    table_name: reconciliation_results
+    operator: "=="
+    value: 0
+    severity: warn
+
+  - name: settlement_duplicates
+    type: threshold
+    metric: duplicates_removed
+    layer: silver
+    table_name: settlements
+    operator: ">"
+    value: 0
+    severity: warn

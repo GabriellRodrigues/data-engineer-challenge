@@ -11,6 +11,7 @@ PIPELINE_RUN = "pipeline_run"
 PIPELINE_RUN_STEP = "pipeline_run_step"
 PIPELINE_METRICS = "pipeline_metrics"
 PIPELINE_ALERTS = "pipeline_alerts"
+DQ_RESULTS = "dq_results"
 
 SCHEMAS = {
     PIPELINE_RUN: pa.schema([
@@ -65,6 +66,19 @@ SCHEMAS = {
         ("expected", pa.float64()),
         ("severity", pa.string()),
         ("status", pa.string()),
+        ("message", pa.string()),
+        ("evaluated_at", TIMESTAMP),
+    ]),
+    DQ_RESULTS: pa.schema([
+        ("run_id", pa.string()),
+        ("check_name", pa.string()),
+        ("check_type", pa.string()),
+        ("layer", pa.string()),
+        ("table_name", pa.string()),
+        ("severity", pa.string()),
+        ("status", pa.string()),
+        ("failing_rows", pa.int64()),
+        ("threshold", pa.int64()),
         ("message", pa.string()),
         ("evaluated_at", TIMESTAMP),
     ]),

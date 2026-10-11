@@ -1,0 +1,37 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.silver.transactions_history
+name: transactions_history
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Every CDC event of an internal transaction, typed and normalized; the audit trail of how a transaction changed.
+  usage: Compliance trail per transaction_id (C1) and changes after reconciliation (C3); source of the current-state table.
+  limitations: Exact replays (same transaction_id, cdc_timestamp and op) are collapsed; replays with a different _timestamp are kept as distinct events.
+schema:
+  - name: transactions_history
+    physicalName: transactions_history
+    physicalType: table
+    logicalType: object
+    description: One row per CDC event; partitioned by created_date.
+    properties:
+      - {name: transaction_id, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 1, description: Business key (UUID).}
+      - {name: cdc_timestamp, logicalType: date, physicalType: timestamp, required: true, primaryKey: true, primaryKeyPosition: 2, description: CDC event time (UTC).}
+      - {name: op, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 3, description: "CDC operation (I, U, D)."}
+      - {name: source_id, logicalType: integer, physicalType: bigint, required: true, description: Surrogate key in the source database.}
+      - {name: merchant_id, logicalType: string, physicalType: varchar, required: true, description: Merchant identifier in upper case.}
+      - {name: amount, logicalType: number, physicalType: "decimal(18,2)", required: true, description: Transaction amount in the transaction currency.}
+      - {name: currency, logicalType: string, physicalType: varchar, required: true, description: ISO 4217 currency code.}
+      - {name: status, logicalType: string, physicalType: varchar, required: true, description: "COMPLETED, PENDING or FAILED."}
+      - {name: description, logicalType: string, physicalType: varchar, required: false, description: Free-text description.}
+      - {name: payment_method, logicalType: string, physicalType: varchar, required: false, description: Payment method in lower case; null for batches before the schema drift.}
+      - {name: created_at, logicalType: date, physicalType: timestamp, required: true, description: Creation time (UTC); anchors the reconciliation window.}
+      - {name: updated_at, logicalType: date, physicalType: timestamp, required: true, description: Last update time in the source (UTC).}
+      - {name: created_date, logicalType: date, physicalType: date, required: true, description: UTC date of created_at; partition column.}
+      - {name: _source_file, logicalType: string, physicalType: varchar, required: true, description: Source file of the Bronze row.}
+      - {name: _bronze_run_id, logicalType: string, physicalType: varchar, required: true, description: Bronze run that loaded the row (lineage only).}
+      - {name: _bronze_ingested_at, logicalType: date, physicalType: timestamp, required: true, description: When the row was loaded into Bronze.}
+      - {name: _silver_run_id, logicalType: string, physicalType: varchar, required: true, description: Silver run that published the row.}
+      - {name: _silver_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Silver run computed the row.}

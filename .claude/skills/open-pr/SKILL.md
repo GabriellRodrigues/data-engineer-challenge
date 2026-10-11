@@ -1,10 +1,10 @@
 ---
 name: open-pr
-description: Open or update the challenge pull request from the current branch of the candidate's fork to the original repository (branch main), describing only what the branch actually did. Use when the user asks to open/create a PR, push and PR, or ship a branch in the data-engineer-challenge repo.
+description: Open or update the challenge pull request from the current branch of the candidate's fork to the original repository (branch main), describing only what the branch actually did, after a review-changes pass. Use when the user asks to open/create a PR, push and PR, or ship a branch in the data-engineer-challenge repo.
 metadata:
   source: https://github.com/pascalorg/editor/blob/main/.agents/skills/open-pr/SKILL.md
   license: MIT (see LICENSE in this folder); adapted for this repository
-allowed-tools: Bash(git *) Bash(gh *) Bash(make *) Bash(uv *) Read
+allowed-tools: Bash(git *) Bash(gh *) Bash(make *) Bash(uv *) Read Glob Grep Skill
 ---
 
 Open (or refresh) the pull request from the candidate's fork to the original challenge repository,
@@ -50,6 +50,16 @@ make test                                      # or: uv run --extra dev pytest
 ```
 
 For pipeline changes, also run `make bronze` (and `make report`) and note the outcome.
+
+### 1.1 Review before opening
+
+Always run the `review-changes` skill on the branch before pushing, and show its output to the
+user.
+
+- **Blocking items** under "Needs change": stop. Open the PR only after they are fixed, or after
+  the user explicitly accepts them; accepted items go under **Pending** in the body.
+- **Nothing blocking:** continue. Reuse its objective in "What does this PR do?" and its checks in
+  "Checks run" instead of running them twice.
 
 ## 2. Body
 

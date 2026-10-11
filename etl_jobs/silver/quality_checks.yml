@@ -1,0 +1,115 @@
+checks:
+  - name: row_conservation:transactions
+    type: row_conservation
+    table: transactions
+    severity: error
+    description: Every distinct transaction_id in Bronze has exactly one current-state row.
+    query: >
+      SELECT abs((SELECT count(DISTINCT transaction_id) FROM bronze_transactions)
+               - (SELECT count(*) FROM transactions))
+
+  - name: row_conservation:reconciliation_results
+    type: row_conservation
+    table: reconciliation_results
+    severity: error
+    description: Every distinct (run_id, transaction_id) in Bronze lands in results or in quarantine.
+    query: >
+      SELECT abs((SELECT count(*) FROM (SELECT DISTINCT run_id, transaction_id FROM bronze_reconciliation_results))
+               - (SELECT count(*) FROM reconciliation_results)
+               - (SELECT count(*) FROM reconciliation_results_quarantine))
+
+  - name: row_conservation:reconciliation_runs
+    type: row_conservation
+    table: reconciliation_runs
+    severity: error
+    description: Every distinct run id in Bronze has exactly one row.
+    query: >
+      SELECT abs((SELECT count(DISTINCT id) FROM bronze_reconciliation_runs)
+               - (SELECT count(*) FROM reconciliation_runs))
+
+  - name: one_current_version:merchants
+    type: scd2
+    table: merchants
+    severity: error
+    description: A merchant has at most one current version.
+    query: >
+      SELECT count(*) FROM (
+        SELECT merchant_id FROM merchants WHERE is_current GROUP BY 1 HAVING count(*) > 1)
+
+  - name: relationships:reconciliation_results.run_id
+    type: relationships
+    table: reconciliation_results_quarantine
+    severity: warn
+    description: Results pointing to a run that does not exist (sent to quarantine).
+    query: SELECT count(*) FROM reconciliation_results_quarantine
+
+  - name: relationships:transactions.merchant_id
+    type: relationships
+    table: transactions
+    severity: warn
+    description: Transactions whose merchant is not in the registry.
+    query: >
+      SELECT count(*) FROM transactions t
+      WHERE NOT EXISTS (SELECT 1 FROM merchants m WHERE m.merchant_id = t.merchant_id)
+
+  - name: relationships:reconciliation_results.transaction_id
+    type: relationships
+    table: reconciliation_results
+    severity: warn
+    description: Results that claim an internal side for a transaction missing from the internal records.
+    query: >
+      SELECT count(*) FROM reconciliation_results r
+      WHERE r.category <> 'UNRECONCILED_PROCESSOR'
+        AND NOT EXISTS (SELECT 1 FROM transactions t WHERE t.transaction_id = r.transaction_id)
+
+  - name: merchant_unknown:reconciliation_results
+    type: not_null
+    table: reconciliation_results
+    severity: warn
+    description: Results whose merchant could not be found in the result, the internal transaction or the settlement.
+    query: SELECT count(*) FROM reconciliation_results WHERE merchant_id IS NULL
+
+  - name: category_coherence:reconciliation_results
+    type: expression
+    table: reconciliation_results
+    severity: warn
+    description: Amounts and difference agree with the category and the R$ 0.01 tolerance.
+    query: >
+      SELECT count(*) FROM reconciliation_results
+      WHERE NOT CASE category
+        WHEN 'MATCHED' THEN internal_amount IS NOT NULL AND processor_amount IS NOT NULL
+             AND abs(internal_amount - processor_amount) <= 0.01
+        WHEN 'MISMATCHED' THEN internal_amount IS NOT NULL AND processor_amount IS NOT NULL
+             AND abs(internal_amount - processor_amount) > 0.01
+        WHEN 'UNRECONCILED_PROCESSOR' THEN internal_amount IS NULL AND processor_amount IS NOT NULL
+        WHEN 'UNRECONCILED_INTERNAL' THEN processor_amount IS NULL AND internal_amount IS NOT NULL
+        ELSE false END
+      OR (internal_amount IS NOT NULL AND processor_amount IS NOT NULL
+          AND difference IS DISTINCT FROM abs(internal_amount - processor_amount))
+
+  - name: run_total_coherence:reconciliation_runs
+    type: expression
+    table: reconciliation_runs
+    severity: warn
+    description: Completed runs whose total_transactions differs from the deduplicated result count.
+    query: >
+      SELECT count(*) FROM reconciliation_runs r
+      WHERE r.status = 'COMPLETED'
+        AND r.total_transactions <> (
+          SELECT count(*) FROM reconciliation_results x WHERE x.run_id = r.run_id)
+
+  - name: run_stuck:reconciliation_runs
+    type: freshness
+    table: reconciliation_runs
+    severity: warn
+    description: Runs still IN_PROGRESS more than 24 hours after they started.
+    query: >
+      SELECT count(*) FROM reconciliation_runs
+      WHERE status = 'IN_PROGRESS' AND started_at < now() - INTERVAL 24 HOUR
+
+  - name: settled_outside_reference_date:settlements
+    type: expression
+    table: settlements
+    severity: warn
+    description: Settlement lines whose settled_date differs from the file reference_date.
+    query: SELECT count(*) FROM settlements WHERE settled_date <> reference_date

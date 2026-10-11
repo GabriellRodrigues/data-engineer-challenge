@@ -1,0 +1,35 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.silver.reconciliation_runs
+name: reconciliation_runs
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Latest state of each reconciliation run of the Settlement Reconciliation Service.
+  usage: Operational health (status, stuck runs, duration, missing dates) and the audit anchor between a file and its results.
+  limitations: Only the latest CDC version of a run is kept; the IN_PROGRESS to COMPLETED transition time is last_cdc_timestamp.
+schema:
+  - name: reconciliation_runs
+    physicalName: reconciliation_runs
+    physicalType: table
+    logicalType: object
+    description: One row per run_id; partitioned by reference_date.
+    properties:
+      - {name: run_id, logicalType: integer, physicalType: bigint, required: true, primaryKey: true, primaryKeyPosition: 1, description: Run identifier in the source database.}
+      - {name: reference_date, logicalType: date, physicalType: date, required: true, description: Business date of the processed file; partition column.}
+      - {name: file_name, logicalType: string, physicalType: varchar, required: true, description: Name of the processed file.}
+      - {name: status, logicalType: string, physicalType: varchar, required: true, description: "IN_PROGRESS, COMPLETED or FAILED."}
+      - {name: total_transactions, logicalType: integer, physicalType: bigint, required: true, description: Transactions in the file according to the service.}
+      - {name: started_at, logicalType: date, physicalType: timestamp, required: true, description: Processing start (UTC).}
+      - {name: completed_at, logicalType: date, physicalType: timestamp, required: false, description: Processing end (UTC); null while running or failed.}
+      - {name: created_at, logicalType: date, physicalType: timestamp, required: true, description: Record creation time (UTC).}
+      - {name: duration_s, logicalType: number, physicalType: double, required: false, description: completed_at minus started_at in seconds.}
+      - {name: last_cdc_timestamp, logicalType: date, physicalType: timestamp, required: true, description: Time of the CDC event that defines the current state.}
+      - {name: cdc_event_count, logicalType: integer, physicalType: bigint, required: true, description: Number of CDC events seen for the run.}
+      - {name: _source_file, logicalType: string, physicalType: varchar, required: true, description: Source file of the latest event.}
+      - {name: _bronze_run_id, logicalType: string, physicalType: varchar, required: true, description: Bronze run that loaded the latest event (lineage only).}
+      - {name: _bronze_ingested_at, logicalType: date, physicalType: timestamp, required: true, description: When the latest event was loaded into Bronze.}
+      - {name: _silver_run_id, logicalType: string, physicalType: varchar, required: true, description: Silver run that published the row.}
+      - {name: _silver_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Silver run computed the row.}

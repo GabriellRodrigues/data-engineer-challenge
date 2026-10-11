@@ -1,0 +1,38 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.silver.transactions
+name: transactions
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Current state of each internal transaction (latest CDC event).
+  usage: Transacted volume for the CFO (TPV by created_date, status, merchant, currency) and the internal side of the reconciliation.
+  limitations: Deleted transactions are kept with is_deleted = true; consumers computing volume must filter them out. Amounts are not converted between currencies.
+schema:
+  - name: transactions
+    physicalName: transactions
+    physicalType: table
+    logicalType: object
+    description: One row per transaction_id; partitioned by created_date.
+    properties:
+      - {name: transaction_id, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 1, description: Business key (UUID).}
+      - {name: source_id, logicalType: integer, physicalType: bigint, required: true, description: Surrogate key of the latest event in the source database.}
+      - {name: merchant_id, logicalType: string, physicalType: varchar, required: true, description: Merchant identifier in upper case.}
+      - {name: amount, logicalType: number, physicalType: "decimal(18,2)", required: true, description: Transaction amount in the transaction currency.}
+      - {name: currency, logicalType: string, physicalType: varchar, required: true, description: ISO 4217 currency code.}
+      - {name: status, logicalType: string, physicalType: varchar, required: true, description: "COMPLETED, PENDING or FAILED."}
+      - {name: description, logicalType: string, physicalType: varchar, required: false, description: Free-text description.}
+      - {name: payment_method, logicalType: string, physicalType: varchar, required: false, description: Payment method in lower case.}
+      - {name: created_at, logicalType: date, physicalType: timestamp, required: true, description: Creation time (UTC).}
+      - {name: updated_at, logicalType: date, physicalType: timestamp, required: true, description: Last update time in the source (UTC).}
+      - {name: created_date, logicalType: date, physicalType: date, required: true, description: UTC date of created_at; partition column.}
+      - {name: is_deleted, logicalType: boolean, physicalType: boolean, required: true, description: True when the latest CDC event is a delete.}
+      - {name: last_cdc_timestamp, logicalType: date, physicalType: timestamp, required: true, description: Time of the CDC event that defines the current state.}
+      - {name: cdc_event_count, logicalType: integer, physicalType: bigint, required: true, description: Number of distinct CDC events seen for the transaction.}
+      - {name: _source_file, logicalType: string, physicalType: varchar, required: true, description: Source file of the latest event.}
+      - {name: _bronze_run_id, logicalType: string, physicalType: varchar, required: true, description: Bronze run that loaded the latest event (lineage only).}
+      - {name: _bronze_ingested_at, logicalType: date, physicalType: timestamp, required: true, description: When the latest event was loaded into Bronze.}
+      - {name: _silver_run_id, logicalType: string, physicalType: varchar, required: true, description: Silver run that published the row.}
+      - {name: _silver_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Silver run computed the row.}

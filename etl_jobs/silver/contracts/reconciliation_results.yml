@@ -1,0 +1,37 @@
+apiVersion: v3.0.2
+kind: DataContract
+id: settlement.silver.reconciliation_results
+name: reconciliation_results
+version: 1.0.0
+status: active
+domain: settlement
+dataProduct: settlement_reconciliation
+description:
+  purpose: Category assigned to each transaction in each reconciliation run, deduplicated and linked to its run.
+  usage: Discrepancy rates and amounts per run for Operations; audit trail of verdicts for Compliance.
+  limitations: A transaction appears in several runs because the 7-day windows overlap; summing amounts across runs double counts. Results whose run does not exist go to reconciliation_results_quarantine.
+schema:
+  - name: reconciliation_results
+    physicalName: reconciliation_results
+    physicalType: table
+    logicalType: object
+    description: One row per (run_id, transaction_id); partitioned by the run reference_date.
+    properties:
+      - {name: reference_date, logicalType: date, physicalType: date, required: true, description: Reference date of the run; partition column.}
+      - {name: run_id, logicalType: integer, physicalType: bigint, required: true, primaryKey: true, primaryKeyPosition: 1, description: Reconciliation run.}
+      - {name: transaction_id, logicalType: string, physicalType: varchar, required: true, primaryKey: true, primaryKeyPosition: 2, description: Reconciled transaction.}
+      - {name: result_id, logicalType: integer, physicalType: bigint, required: true, description: Identifier of the kept result row in the source.}
+      - {name: file_name, logicalType: string, physicalType: varchar, required: true, description: File processed by the run.}
+      - {name: merchant_id, logicalType: string, physicalType: varchar, required: false, description: Merchant identifier in upper case; filled from the internal transaction or the settlement when the result has none.}
+      - {name: merchant_id_origin, logicalType: string, physicalType: varchar, required: false, description: "Where merchant_id came from (result, transaction, settlement); null when unknown."}
+      - {name: category, logicalType: string, physicalType: varchar, required: true, description: "MATCHED, MISMATCHED, UNRECONCILED_PROCESSOR or UNRECONCILED_INTERNAL."}
+      - {name: internal_amount, logicalType: number, physicalType: "decimal(18,2)", required: false, description: Internal amount; null for UNRECONCILED_PROCESSOR.}
+      - {name: processor_amount, logicalType: number, physicalType: "decimal(18,2)", required: false, description: Processor amount; null for UNRECONCILED_INTERNAL.}
+      - {name: difference, logicalType: number, physicalType: "decimal(18,2)", required: false, description: Absolute difference between both amounts.}
+      - {name: created_at, logicalType: date, physicalType: timestamp, required: true, description: Result creation time (UTC).}
+      - {name: source_row_count, logicalType: integer, physicalType: bigint, required: true, description: Rows found in the source for this key before deduplication.}
+      - {name: _source_file, logicalType: string, physicalType: varchar, required: true, description: Source file of the Bronze row.}
+      - {name: _bronze_run_id, logicalType: string, physicalType: varchar, required: true, description: Bronze run that loaded the row (lineage only).}
+      - {name: _bronze_ingested_at, logicalType: date, physicalType: timestamp, required: true, description: When the row was loaded into Bronze.}
+      - {name: _silver_run_id, logicalType: string, physicalType: varchar, required: true, description: Silver run that published the row.}
+      - {name: _silver_built_at, logicalType: date, physicalType: timestamp, required: true, description: When the Silver run computed the row.}

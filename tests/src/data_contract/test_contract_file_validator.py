@@ -5,14 +5,20 @@ from src.data_contract.contract_file_validator import (
     load_contract,
     validate_contract,
 )
-from src.utils.paths import BRONZE_CONTRACTS_DIR
+from src.utils.paths import BRONZE_CONTRACTS_DIR, SILVER_CONTRACTS_DIR
 
 BRONZE_CONTRACTS = sorted(path.stem for path in BRONZE_CONTRACTS_DIR.glob("*.yml"))
+SILVER_CONTRACTS = sorted(path.stem for path in SILVER_CONTRACTS_DIR.glob("*.yml"))
 
 
 @pytest.mark.parametrize("name", BRONZE_CONTRACTS)
 def test_bronze_contracts_are_valid(name):
     assert load_contract(name, BRONZE_CONTRACTS_DIR)["name"] == name
+
+
+@pytest.mark.parametrize("name", SILVER_CONTRACTS)
+def test_silver_contracts_are_valid(name):
+    assert load_contract(name, SILVER_CONTRACTS_DIR)["name"] == name
 
 
 def test_unsupported_physical_type_is_rejected(tmp_path):

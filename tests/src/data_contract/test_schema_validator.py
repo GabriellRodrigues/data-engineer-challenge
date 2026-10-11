@@ -36,6 +36,23 @@ def test_type_change_breaks(contract, orders):
         enforce_schema(orders(amount=pa.array(["10", "20"])), contract)
 
 
+@pytest.mark.parametrize(
+    ("physical_type", "matching", "other"),
+    [
+        ("timestamp", pa.timestamp("us", tz="UTC"), pa.timestamp("us")),
+        ("decimal(18,2)", pa.decimal128(18, 2), pa.decimal128(18, 4)),
+        ("date", pa.date32(), pa.timestamp("us", tz="UTC")),
+    ],
+)
+def test_typed_physical_types_require_exact_arrow_type(contract, physical_type, matching, other):
+    typed = {**contract, "schema": [{"name": "orders", "properties": [
+        {"name": "value", "logicalType": "date", "physicalType": physical_type, "required": True},
+    ]}]}
+    assert enforce_schema(pa.table({"value": pa.nulls(1, matching)}), typed).num_rows == 1
+    with pytest.raises(SchemaContractError, match="column 'value' has type"):
+        enforce_schema(pa.table({"value": pa.nulls(1, other)}), typed)
+
+
 def test_new_column_is_kept_with_warning(contract, orders, caplog):
     table = enforce_schema(orders(channel=pa.array(["web", "app"])), contract)
     assert "channel" in table.column_names

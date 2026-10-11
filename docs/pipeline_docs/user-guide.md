@@ -24,8 +24,9 @@ processed and queried with **DuckDB**, run in **Docker Compose**.
 | **Data contracts** | done | One ODCS-style YAML per dataset; schema rules plus row rules (`required`, formats, patterns, ranges, valid values). |
 | **Table maintenance** | done | Z-order/compaction (only when data changed), vacuum with 30-day retention, checkpoints. |
 | **Observability** | done | Run/step registry, metrics, alert rules (warn vs stop) and a Markdown health report. |
-| **Silver / Gold** | not started | Folders exist (`etl_jobs/silver`, `etl_jobs/gold`, `data/silver`, `data/gold`). |
-| **Data quality checks** | not started | Planned for Silver/Gold (`src/data_quality`). |
+| **Silver** | done | Typed, deduplicated, conformed tables built from Bronze in SQL (DuckDB). Idempotent per `reference_date` (partition replace), full rebuild by default. Output contract per table. See [`silver-layer.md`](silver-layer.md). |
+| **Data quality checks** | done (Silver) | Dataset-level checks (unique, not_null, row conservation, relationships, category coherence, ...) run before publishing; `error` blocks the publish, `warn` only records. Results in `dq_results`. |
+| **Gold** | not started | Folders exist (`etl_jobs/gold`, `data/gold`). |
 
 Bronze tables produced from the source files in `data/landing/` (written by `make generate`; same file names as the challenge sample in `docs/sample-data/`):
 
@@ -48,11 +49,18 @@ etl_jobs/                       Entry points (python -m etl_jobs.<...>)
   maintenance/optimize_tables.py  Delta maintenance job
   observability/health_report.py  Health report job
   observability/alert_rules.yml   Alert rules (thresholds and deviations)
-  silver/, gold/                  Not implemented yet
+  silver/build_silver.py          Silver build job (compute, check, publish)
+  silver/tables.py                Silver table registry (inputs, partition, date scope)
+  silver/sql/*.sql                One query per Silver table, plus macros.sql
+  silver/contracts/*.yml          Output contracts of the Silver tables
+  silver/quality_checks.yml       Custom data quality checks of the Silver layer
+  gold/                           Not implemented yet
 src/                            Reusable components (no entry points)
   data_contract/                  Contract file, schema and record validation
   observability/                  Run registry, metrics, alerts, report, storage
   common/delta_maintenance.py     Optimize/vacuum logic and table properties
+  common/delta_io.py              Pinned-version reads and partition-replace publish
+  data_quality/checks.py          Dataset-level checks and dq_results persistence
   utils/                          Paths, logger, YAML reader
 tests/                          Mirrors the path of the component under test
   src/..., etl_jobs/..., scripts/...
@@ -64,7 +72,8 @@ data/                           Generated, not versioned
   bronze/<table>                  Delta tables (+ <table>_refused)
   observability/<table>           Observability Delta tables
   observability/reports/          Health reports (Markdown)
-  silver/, gold/                  Empty for now
+  silver/<table>                  Silver Delta tables
+  gold/                           Empty for now
 scripts/generate_sample_data.py Synthetic data generator (from the challenge)
 run_duckdb_ui.py                DuckDB UI over all Delta tables (runs on the host)
 Makefile                        Shortcuts for every operation (make help)
@@ -92,6 +101,7 @@ used by pointing `DATA_PATH` to it (section 5.6).
 make up          # build the image and start the container (docker compose up -d --build)
 make generate    # write a synthetic dataset (10k transactions) to data/landing
 make bronze      # ingest data/landing into Bronze, then run table maintenance
+make silver      # build the Silver layer from Bronze, then run table maintenance
 make report      # write data/observability/reports/latest.md
 make test        # run the test suite inside the container
 make ui          # optional: DuckDB UI at http://localhost:4213 (host, needs uv)
@@ -107,6 +117,7 @@ in `pyproject.toml` do need a rebuild (`make up`); see section 7.
 ```bash
 uv sync --extra dev
 uv run python -m etl_jobs.bronze.ingest_to_bronze
+uv run python -m etl_jobs.silver.build_silver
 uv run python -m etl_jobs.maintenance.optimize_tables
 uv run python -m etl_jobs.observability.health_report
 uv run --extra dev pytest
@@ -127,6 +138,7 @@ On the host, `GIT_SHA` is not set unless you export it, so runs are recorded wit
 | `make test` | `pytest tests/ -v` in the container | |
 | `make bronze` | Bronze ingestion, then maintenance | stops at the first failing job |
 | `make reprocess FILES="a.parquet b.csv" REASON="..."` | Bronze ingestion of only those files, replacing their rows, then maintenance | `REASON` is optional but recommended (audit) |
+| `make silver` / `make silver REFERENCE_DATE=2025-03-16` | Silver build (full rebuild, or one business date), then maintenance | a blocking data quality check stops the run before anything is published |
 | `make optimize` | maintenance only | |
 | `make report` | health report of the latest run of each job | |
 | `make ui` | DuckDB UI on the host | needs uv; downloads the `ui` and `delta` DuckDB extensions on first use |
@@ -137,6 +149,7 @@ Job options:
 
 ```bash
 python -m etl_jobs.bronze.ingest_to_bronze [--reprocess FILE [FILE ...]] [--reason TEXT]   # FILE = path relative to DATA_PATH
+python -m etl_jobs.silver.build_silver [--reference-date YYYY-MM-DD | --start-date YYYY-MM-DD --end-date YYYY-MM-DD]
 python -m etl_jobs.observability.health_report [--run-id RUN_ID] [--last N]
 ```
 
@@ -338,6 +351,9 @@ in `tests/`, and add a `make` target.
 
 | Document | Covers |
 |---|---|
+| [`test-plan.md`](test-plan.md) | Automated tests, end-to-end smoke test with expected numbers, idempotency and failure scenarios, scale test results, verification queries |
+| [`silver-layer.md`](silver-layer.md) | Silver tables, grain and keys, cleaning and dedup rules, idempotency per reference date, compute-check-publish, data quality checks, limits |
+| [`data-product.md`](data-product.md) | Consumers, KPIs per consumer with priorities, sample data findings, scope cuts, what Silver must deliver |
 | [`data-contracts.md`](data-contracts.md) | Sources and dataset names, schema and record rules, dead letter table, idempotency, reprocessing, load traceability |
 | [`observability.md`](observability.md) | Observability tables, when each record is written, metrics catalog, alerts, health report, SQL recipes |
 | [`delta-maintenance.md`](delta-maintenance.md) | Optimize/Z-order rules, why optimize is skipped, retention |

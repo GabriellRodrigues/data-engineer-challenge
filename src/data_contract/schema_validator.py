@@ -15,6 +15,8 @@ PHYSICAL_TYPES = {
     "varchar": pa.string(),
     "boolean": pa.bool_(),
     "date": pa.date32(),
+    "timestamp": pa.timestamp("us", tz="UTC"),
+    "decimal(18,2)": pa.decimal128(18, 2),
 }
 
 
