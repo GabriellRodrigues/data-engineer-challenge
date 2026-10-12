@@ -235,7 +235,6 @@ def test_full_build_publishes_every_gold_table(built):
         "fact_transaction_event": 7,
         "fact_transaction": 5,
         "fact_settlement": 3,
-        "audit_reconciliation_recheck": 4,
         "agg_reconciliation_daily": 13,
         "agg_amount_at_risk_daily": 6,
         "agg_reconciliation_merchant": 6,
@@ -360,17 +359,33 @@ def test_volume_excludes_deletes_and_keeps_currencies_apart(built):
     ]
 
 
-def test_recheck_compares_service_verdicts_with_a_recomputation(built):
-    _, gold_dir, _ = built
-    assert query(gold_dir, """
-        SELECT transaction_id, service_category, recomputed_category, outcome
-        FROM audit_reconciliation_recheck ORDER BY transaction_id
-    """) == [
-        ("t2", "UNRECONCILED_INTERNAL", "UNRECONCILED_INTERNAL", "agrees"),
-        ("t3", "MATCHED", "MATCHED", "agrees"),
-        ("t4", "MATCHED", "UNRECONCILED_PROCESSOR", "category_differs"),
-        ("t9", None, "UNRECONCILED_PROCESSOR", "missing_in_service"),
+RECHECK = "reconciliation_recheck:fact_reconciliation_result"
+
+
+def check_result(observability_dir, name: str) -> dict:
+    return next(r for r in read(observability_dir, DQ_RESULTS).to_pylist() if r["check_name"] == name)
+
+
+def test_recheck_counts_verdicts_that_differ_from_a_recomputation(built):
+    _, _, observability_dir = built
+
+    result = check_result(observability_dir, RECHECK)
+
+    assert (result["status"], result["failing_rows"]) == ("warn", 2)
+
+
+def test_recheck_passes_when_the_service_follows_the_rules(layout):
+    silver_dir, _, observability_dir = layout
+    transactions = [
+        {**row, "is_deleted": False} if row["transaction_id"] == "t4" else row for row in SILVER["transactions"]
     ]
+    write_silver(silver_dir, "transactions", transactions)
+    write_silver(silver_dir, "settlements", [r for r in SILVER["settlements"] if r["transaction_id"] != "t9"])
+
+    build_gold.main([])
+
+    result = check_result(observability_dir, RECHECK)
+    assert (result["status"], result["failing_rows"]) == ("pass", 0)
 
 
 def test_rerun_for_the_same_reference_date_is_idempotent(layout):
@@ -421,7 +436,7 @@ def test_shipped_checks_pass_or_only_warn(built):
     statuses = {r["check_name"]: r["status"] for r in read(observability_dir, DQ_RESULTS).to_pylist()}
     assert "fail" not in statuses.values()
     assert statuses["missing_run:agg_reconciliation_daily"] == "warn"
-    assert statuses["reconciliation_recheck:audit_reconciliation_recheck"] == "warn"
+    assert statuses[RECHECK] == "warn"
     assert statuses["currency_unknown:fact_reconciliation_result"] == "warn"
     assert statuses["sum_conservation:agg_volume_daily"] == "pass"
 

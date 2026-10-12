@@ -49,7 +49,6 @@ GOLD_ZORDER = {
     "fact_transaction_event": ["transaction_id"],
     "fact_transaction": ["transaction_id"],
     "fact_settlement": ["transaction_id"],
-    "audit_reconciliation_recheck": ["transaction_id"],
     "agg_reconciliation_daily": None,
     "agg_amount_at_risk_daily": None,
     "agg_reconciliation_merchant": None,

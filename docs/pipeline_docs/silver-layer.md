@@ -181,7 +181,7 @@ corrupt the tables. `warn` checks describe the quality of the source data (the s
 orphan runs, totals): Silver does not correct them, it exposes them, and blocking on them would
 leave Operations without dashboards because of upstream data. Recomputing the reconciliation from
 transactions and settlements, to compare with the service verdicts, is done in Gold
-(`audit_reconciliation_recheck`, see [`gold-layer.md`](gold-layer.md)).
+(check `reconciliation_recheck`, see [`gold-layer.md`](gold-layer.md)).
 
 What the checks found on the data:
 

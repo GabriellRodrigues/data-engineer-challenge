@@ -71,7 +71,11 @@ Pain: *"audit history"* — traceability of what was decided, when, and from whi
 | C3 | Which transactions changed after being reconciled? | `compliance/03_changes_after_reconciliation.sql` | `fact_transaction_event`, `fact_transaction` | 6: 3 status changes (`PENDING`/`FAILED` → `COMPLETED`) and 3 deletes, all after a `MATCHED` verdict |
 | C4 | Who was the merchant at the time of the transaction? | `compliance/04_merchant_as_of.sql` | `fact_transaction`, `dim_merchant` | 81 transactions were made while the merchant was `... Ltda` and the registry now says `... S.A.` (the query shows the first 20); CNPJ shown masked |
 | C6 | Which transactions were deleted and which settlements reversed? | `compliance/05_deletes_and_reversals.sql` | `fact_transaction_event`, `fact_settlement` | 6 deleted transactions and 27 reversed settlements, each with its source file |
-| — | Do the service verdicts follow the business rules? | `compliance/06_reconciliation_recheck.sql` | `audit_reconciliation_recheck` | no: for 2025-03-16 the recomputation disagrees everywhere, because the sample CSV is not the file of run 5 and most verdicts are outside the 7-day window ([`gold-layer.md`](gold-layer.md), section 3) |
+
+Whether the service verdicts follow the business rules is a data quality check too
+(`reconciliation_recheck`, warn): on the sample it counts 544 differences, because the sample CSV
+is not the file of run 5 and most verdicts are outside the 7-day window
+([`gold-layer.md`](gold-layer.md), section 3).
 
 C5 (referential integrity) is a data quality check, not a query: `dq_results` holds it for every
 run (orphan results, transactions without merchant, unknown currency).

@@ -137,7 +137,7 @@ and `etl_jobs/gold/quality_checks.yml`, plus `unique`/`not_null` derived from th
 | `run_total_coherence`, `category_coherence`, `merchant_unknown` | the check SQL in `quality_checks.yml` | Data produced by the reconciliation service; reported, not corrected |
 | `row_conservation:*` (error) | Bronze latest-load count vs Silver + duplicates + quarantine | A join or filter in the Silver SQL that drops or multiplies rows |
 | `row_conservation:fact_*`, `sum_conservation:agg_*` (Gold, error) | Silver count/sum vs the Gold fact or aggregate | A Gold join that fans out (e.g. a dimension joined without the SCD2 `valid_at` filter) or a filter that drops rows |
-| `discrepancy_rate_spike`, `reconciliation_runs_missing`, `missing_run:*`, `reconciliation_recheck:*` (Gold, warn) | `gold.agg_reconciliation_daily`, `gold.audit_reconciliation_recheck` | Business signals from the reconciliation service, not pipeline defects: a worse run, a failed or absent run, verdicts that do not follow the rules |
+| `discrepancy_rate_spike`, `reconciliation_runs_missing`, `missing_run:*`, `reconciliation_recheck:*` (Gold, warn) | `gold.agg_reconciliation_daily`; for the recheck, run the check query of `etl_jobs/gold/quality_checks.yml` without the final `count(*)` | Business signals from the reconciliation service, not pipeline defects: a worse run, a failed or absent run, verdicts that do not follow the rules |
 | `one_current_version:merchants` (error) | `SELECT merchant_id, count(*) FROM silver.merchants WHERE is_current GROUP BY 1 HAVING count(*) > 1` | SCD2 logic or CDC ties in `enterprise_company` |
 
 ## 6. Data symptoms

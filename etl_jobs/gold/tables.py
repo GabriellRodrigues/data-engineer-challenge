@@ -28,11 +28,6 @@ GOLD_TABLES = (
         RECONCILIATION_WINDOW_DAYS,
     ),
     LayerTable("fact_settlement", ("settlements", "transactions", "merchants"), "reference_date"),
-    LayerTable(
-        "audit_reconciliation_recheck",
-        (*RESULTS, "transactions", "settlements"),
-        "reference_date",
-    ),
     LayerTable("agg_reconciliation_daily", RESULTS),
     LayerTable("agg_amount_at_risk_daily", (*RESULTS, "transactions", "settlements")),
     LayerTable("agg_reconciliation_merchant", (*RESULTS, "merchants")),

@@ -26,8 +26,8 @@ processed and queried with **DuckDB**, run in **Docker Compose**.
 | **Observability** | done | Run/step registry, metrics, alert rules (warn vs stop) and a Markdown health report. |
 | **Silver** | done | Typed, deduplicated, conformed tables built from Bronze in SQL (DuckDB). Idempotent per `reference_date` (partition replace), full rebuild by default. Output contract per table. See [`silver-layer.md`](silver-layer.md). |
 | **Data quality checks** | done (Silver, Gold) | Dataset-level checks (unique, not_null, row and sum conservation between layers, relationships, category coherence, recomputed reconciliation, ...) run before publishing; `error` blocks the publish, `warn` only records. Results in `dq_results`. |
-| **Gold** | done | Dimensional model (3 dimensions, 5 facts, an audit recheck table) and daily aggregates per consumer, built from Silver with the same compute-check-publish code. Idempotent per `reference_date`. Business metrics feed the alerts. See [`gold-layer.md`](gold-layer.md). |
-| **Example queries** | done | 17 queries for Operations, CFO and Compliance (`make queries`), with the answers on the sample in [`analytics.md`](analytics.md). |
+| **Gold** | done | Dimensional model (3 dimensions, 5 facts) and daily aggregates per consumer, built from Silver with the same compute-check-publish code. Idempotent per `reference_date`. Business metrics feed the alerts. See [`gold-layer.md`](gold-layer.md). |
+| **Example queries** | done | 16 queries for Operations, CFO and Compliance (`make queries`), with the answers on the sample in [`analytics.md`](analytics.md). |
 
 Bronze tables produced from the source files in `data/landing/` (written by `make generate`; same file names as the challenge sample in `docs/sample-data/`):
 
@@ -387,7 +387,7 @@ in `tests/`, and add a `make` target.
 | Document | Covers |
 |---|---|
 | [`test-plan.md`](test-plan.md) | Automated tests, end-to-end smoke test with expected numbers, idempotency and failure scenarios, scale test results, verification queries |
-| [`gold-layer.md`](gold-layer.md) | Gold model, tables and grain, business rules (reference run, trend, exposure, recheck), idempotency, checks, business metrics, limits |
+| [`gold-layer.md`](gold-layer.md) | Gold model, tables and grain, business rules (reference run, trend, exposure, reconciliation recheck), idempotency, checks, business metrics, limits |
 | [`lineage.md`](lineage.md) | Generated graph of table dependencies, critical tables and what feeds them |
 | [`analytics.md`](analytics.md) | Questions per consumer, the query that answers each one and its result on the sample, what is deliberately not answered and why |
 | [`silver-layer.md`](silver-layer.md) | Silver tables, grain and keys, cleaning and dedup rules, idempotency per reference date, compute-check-publish, data quality checks, limits |

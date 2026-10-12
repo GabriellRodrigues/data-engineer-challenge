@@ -51,7 +51,6 @@ of each date (`is_reference_run`): the latest `COMPLETED` run of that `reference
 | `fact_transaction_event` | CDC event (`transaction_id`, `cdc_timestamp`, `op`) | `created_date` | `silver.transactions_history` + results | C1, C3, C6 |
 | `fact_transaction` | transaction (`transaction_id`), current state | `created_date` | transactions + results + events | F1–F4, F7, O7, O8, C3 |
 | `fact_settlement` | settlement line (`processor`, `reference_date`, `transaction_id`, `processor_reference`) | `reference_date` | settlements + transactions | F5, F6, F7 |
-| `audit_reconciliation_recheck` | (`run_id`, `transaction_id`) | `reference_date` | results + transactions + settlements | Compliance evidence, check |
 | `agg_reconciliation_daily` | `reference_date` | none (rebuilt whole) | `fact_reconciliation_run` | O1–O3, O5 |
 | `agg_amount_at_risk_daily` | `reference_date` × `currency` | none | `fact_reconciliation_result` | O4 |
 | `agg_reconciliation_merchant` | `reference_date` × `merchant_id` | none | `fact_reconciliation_result` | O9 |
@@ -97,33 +96,34 @@ day (or per day and merchant), so rebuilding them is cheap and never leaves a st
 | TPV (F1) | `agg_volume_daily` | sum of `amount` of non-deleted transactions by `created_date`, `currency` and `status`; the CFO headline is `status = 'COMPLETED'` in BRL |
 | Settled net (F5) | `fact_settlement.signed_amount` | amount, negative for `REVERSED`; its sum is settled − reversed |
 
-**Recomputing the reconciliation.** `audit_reconciliation_recheck` recomputes the verdicts of every
-reference run whose date has a settlement file in Silver, with the rules of the glossary, for every
-transaction the service judged in that run or that appears in the processor file of that date:
+**Recomputing the reconciliation.** The warn check `reconciliation_recheck:fact_reconciliation_result`
+(`quality_checks.yml`) recomputes the verdicts of every reference run whose date has a settlement
+file in Silver, with the rules of the glossary, for every transaction the service judged in that run
+or that appears in the processor file of that date:
 
 - internal side: the transaction, if not deleted and created in `[reference_date − 7, reference_date]`;
 - processor side: its settlement line of that `reference_date`;
 - `MATCHED` when both sides exist and differ by at most R$ 0.01, `MISMATCHED` above it,
   `UNRECONCILED_*` when one side is missing.
 
-It is then compared with the service verdict: `outcome` is `agrees`, `category_differs`,
-`missing_in_service` (a processor line the service did not judge) or `missing_in_recompute` (a
-verdict with neither side found). It uses the current state of the transactions, so a later CDC
-change can explain a difference; the table is evidence, not a replacement for the service.
+It counts the transactions where the service category differs from the recomputed one, including
+processor lines the service did not judge and verdicts with neither side found. The result is in
+`dq_results` (`failing_rows`) and in the run log. To see which transactions differ, run the query
+of the check without the final `count(*)`. It uses the current state of the transactions, so a later
+CDC change can explain a difference; the check is evidence, not a replacement for the service.
 
-Internal transactions of the window that the service did not judge in that run are **not** listed.
-The service reports an unmatched internal transaction in one run, not in each of the eight runs
-whose windows contain it; listing them multiplied the table by eight (7.7M rows for 1M
-transactions) with no signal.
+Internal transactions of the window that the service did not judge in that run are **not** counted.
+The service reports an unmatched internal transaction in one run, not in each of the eight runs whose
+windows contain it; counting them gave 6.66M "differences" for 1M transactions with no signal.
 
 What it found:
 
 | Data | Result |
 |---|---|
-| Synthetic 1M (`make generate-large`) | the recomputation agrees with 99.5% of the service verdicts; the rest are `MATCHED` verdicts whose internal transaction is outside the window or deleted, and ~3k `REVERSED` processor lines the service never judged (the same orphan lines behind `run_total_coherence` in Silver) |
-| Challenge sample | no agreement: the only settlement file (`settlement_paysettler.csv`, 500 lines) is not the file processed by run 5 of the same date (`settlement_20250316_02_00.csv`, 98 transactions), and 592 of the 788 verdicts judge internal transactions created outside the 7-day window of their run |
+| Synthetic 1M (`make generate-large`) | 7,555 differences: the recomputation agrees with 99.5% of the service verdicts; the rest are `MATCHED` verdicts whose internal transaction is outside the window or deleted, and ~3k `REVERSED` processor lines the service never judged (the same orphan lines behind `run_total_coherence` in Silver) |
+| Challenge sample | 544 differences, no agreement: the only settlement file (`settlement_paysettler.csv`, 500 lines) is not the file processed by run 5 of the same date (`settlement_20250316_02_00.csv`, 98 transactions), and 592 of the 788 verdicts judge internal transactions created outside the 7-day window of their run |
 
-The unit tests cover a coherent case where the recomputation agrees.
+The unit tests cover a coherent case where the check passes.
 
 ## 4. Idempotency and the reference date
 
@@ -150,7 +150,7 @@ shared code (`src/common/layer_build.py`):
 
 | Table | Partitions replaced for dates `[A, B]` |
 |---|---|
-| `fact_reconciliation_run`, `fact_reconciliation_result`, `fact_settlement`, `audit_reconciliation_recheck` | `reference_date` in `[A, B]` |
+| `fact_reconciliation_run`, `fact_reconciliation_result`, `fact_settlement` | `reference_date` in `[A, B]` |
 | `fact_transaction`, `fact_transaction_event` | `created_date` in `[A − 7, B]` (a run of D judges transactions created in `[D − 7, D]`) |
 | dimensions and aggregates | whole table |
 
@@ -182,20 +182,20 @@ the primary key, both `error`. Custom checks are in `etl_jobs/gold/quality_check
 | `relationships:fact_reconciliation_result.category` | warn | a category not described in `dim_category` |
 | `missing_run:agg_reconciliation_daily` | warn | dates the cadence expects without a completed run |
 | `currency_unknown:fact_reconciliation_result` | warn | verdicts whose money cannot be put in a currency |
-| `reconciliation_recheck:audit_reconciliation_recheck` | warn | service verdicts that differ from the recomputation |
+| `reconciliation_recheck:fact_reconciliation_result` | warn | service verdicts that differ from an independent recomputation (see section 3) |
 
 **Why these block and those warn.** As in Silver, `error` checks protect the transformation itself:
 if a join duplicates rows, a sum does not match the layer below, or a sensitive value leaks, the
 Gold computation is wrong and publishing it would show wrong numbers to the CFO. `warn` checks
 describe the source and the business (a missing run, a service verdict that does not follow the
 rules); blocking on them would leave every consumer without data because of one upstream problem,
-and the dashboards themselves show the problem (`is_missing_run`, the recheck table).
+and the dashboards themselves show the problem (`is_missing_run`).
 
 Results on the data:
 
 | Data | Findings |
 |---|---|
-| Challenge sample | every `error` check passes; `missing_run` warns (1: run 7 of 2025-03-22 failed); `reconciliation_recheck` warns (544 rows: 451 processor lines the service did not judge, 61 category differences, 32 verdicts with neither side; section 3) |
+| Challenge sample | every `error` check passes; `missing_run` warns (1: run 7 of 2025-03-22 failed); `reconciliation_recheck` warns (544: 451 processor lines the service did not judge, 61 category differences, 32 verdicts with neither side; section 3) |
 | Synthetic data (`make generate`) | see [`test-plan.md`](test-plan.md) section 4 |
 
 ## 6. Business metrics and alerts
@@ -215,7 +215,7 @@ Plus the generic ones of every layer: `rows_out` per table and `table_row_count`
 
 ## 7. Example queries
 
-17 queries in `etl_jobs/gold/queries/<consumer>/NN_<question>.sql` (Operations, CFO, Compliance).
+16 queries in `etl_jobs/gold/queries/<consumer>/NN_<question>.sql` (Operations, CFO, Compliance).
 They run against the Gold tables only:
 
 ```bash
@@ -238,7 +238,7 @@ the sample are in [`analytics.md`](analytics.md).
   ([`lineage.md`](lineage.md) is checked by the tests).
 - **A new question:** a `.sql` file in `etl_jobs/gold/queries/<consumer>/`; the test runs it.
 - **A second settlement processor:** nothing changes in Gold. `fact_settlement` and
-  `agg_settlement_daily` already have `processor` in their key, and the recheck reads every
+  `agg_settlement_daily` already have `processor` in their key, and the recheck check reads every
   settlement of the date.
 - **A new reconciliation category:** add a row to `dim_category.sql`; until then the
   `relationships:...category` check warns and the category counts as a discrepancy.

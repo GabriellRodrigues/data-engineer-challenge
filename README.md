@@ -244,7 +244,7 @@ make pipeline                # Bronze -> Silver -> Gold -> manutenção das tabe
 make queries                 # queries de exemplo; resultado em data/reports/gold_queries.md
 make report                  # health report em data/observability/reports/latest.md
 make lineage                 # grafo de dependências em docs/pipeline_docs/lineage.md
-make test                    # 280 testes
+make test                    # 279 testes
 make ui                      # opcional: DuckDB UI sobre todas as tabelas (roda no host, precisa de uv)
 ```
 
@@ -305,7 +305,7 @@ flowchart LR
     end
     silver --> gold
     subgraph gold["Gold — modelo dimensional"]
-      g1["dims conformadas, fatos<br/>snapshots e agregados por consumidor<br/>recheck da reconciliação"]
+      g1["dims conformadas, fatos<br/>snapshots e agregados por consumidor"]
     end
     gold --> ops["Operações"]
     gold --> cfo["CFO"]
@@ -339,7 +339,7 @@ Estrutura do repositório:
 ```
 etl_jobs/   jobs (bronze/, silver/, gold/, maintenance/, observability/); SQL, contratos e checks de cada camada
 src/        componentes reutilizáveis (data_contract, data_quality, observability, lineage, common, utils)
-tests/      espelha o caminho do módulo testado (280 testes)
+tests/      espelha o caminho do módulo testado (279 testes)
 docs/pipeline_docs/   documentação do pipeline
 data/       gerado, não versionado (landing, bronze, silver, gold, observability)
 ```
@@ -360,7 +360,7 @@ Plugar um **segundo processador** (por exemplo um `QuickPay`, com schema parecid
 
 O que **não** muda:
 - **Contrato de saída:** a tabela Silver `settlements` já tem `processor` na chave.
-- **Gold:** `fact_settlement` e `agg_settlement_daily` também têm `processor` na chave. O recheck lê as liquidações da data; ele só precisaria filtrar pelo processador do arquivo do run se o serviço reconciliar cada processador separadamente.
+- **Gold:** `fact_settlement` e `agg_settlement_daily` também têm `processor` na chave. O check que recalcula a reconciliação lê as liquidações da data; ele só precisaria filtrar pelo processador do arquivo do run se o serviço reconciliar cada processador separadamente.
 - **Consumidores:** as queries do CFO já agrupam por processador.
 
 Testes que rodam de novo (`make test`):

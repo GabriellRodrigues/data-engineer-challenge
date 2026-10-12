@@ -18,14 +18,14 @@ make test                      # in the container
 uv run --extra dev pytest      # on the host
 ```
 
-280 tests, mirrored on the path of the module they cover (`tests/src/...`, `tests/etl_jobs/...`).
+279 tests, mirrored on the path of the module they cover (`tests/src/...`, `tests/etl_jobs/...`).
 Every test writes to `tmp_path` and never touches `data/`.
 
 | Area | Test files | Tests | What is covered |
 |---|---|---|---|
 | Bronze job | `tests/etl_jobs/bronze/test_ingest_to_bronze.py` | 32 | idempotency by hash, reprocess, dead letter table, schema breaks, dataset naming, metrics and alerts |
-| Gold job | `tests/etl_jobs/gold/test_build_gold.py` | 23 | dimensional model on a hand-checked Silver fixture: CNPJ masked and unknown member, merchant version valid at the transaction (SCD2), one reference run per date, rates, cadence and missing runs, trend baseline, amount at risk per currency, current reconciliation status, exposure, aging, resolution, changes after reconciliation, recheck outcomes, **same date twice = same content as a full rebuild**, a date run touches only its partitions, blocking check stops the publish, business metrics and alerts, empty Silver, missing Silver table, CLI validation |
-| Example queries | `tests/etl_jobs/gold/test_run_queries.py` | 23 | every shipped query runs against a Gold built from the fixture; key answers (trend dates, transaction trail, TPV); discovery per consumer; Markdown output; a failing query exits 1 |
+| Gold job | `tests/etl_jobs/gold/test_build_gold.py` | 24 | dimensional model on a hand-checked Silver fixture: CNPJ masked and unknown member, merchant version valid at the transaction (SCD2), one reference run per date, rates, cadence and missing runs, trend baseline, amount at risk per currency, current reconciliation status, exposure, aging, resolution, changes after reconciliation, recheck check (differences counted, passes on a coherent case), **same date twice = same content as a full rebuild**, a date run touches only its partitions, blocking check stops the publish, business metrics and alerts, empty Silver, missing Silver table, CLI validation |
+| Example queries | `tests/etl_jobs/gold/test_run_queries.py` | 22 | every shipped query runs against a Gold built from the fixture; key answers (trend dates, transaction trail, TPV); discovery per consumer; Markdown output; a failing query exits 1 |
 | Shared layer build | `tests/src/common/test_layer_build.py` | 16 | date scope with lookback, table registry, contract conform (order, optional columns, undeclared columns, wrong types), macros, run stamping, CLI dates, job wrapper (failed and date-mode runs) |
 | Silver job | `tests/etl_jobs/silver/test_build_silver.py` | 23 | parsing (3 amount formats, timestamps without timezone), CDC tie-break, deletes, SCD2, quarantine, latest load per file, **same date twice = same content**, a date run touches only its partitions, 7-day window, blocking check stops the publish, pinned Bronze versions, CLI validation |
 | Data contracts | `tests/src/data_contract/*` | 51 | contract files (all Bronze, Silver and Gold contracts are valid), schema enforcement and new types, record rules |
@@ -88,7 +88,6 @@ section 5.
 | `fact_reconciliation_result` | 788 | one per Silver result |
 | `fact_transaction_event` / `fact_transaction` | 1060 / 1000 | one per Silver event / transaction |
 | `fact_settlement` | 500 | one per Silver settlement |
-| `audit_reconciliation_recheck` | 544 | run 5 (2025-03-16, the only date with a settlement file): its 93 verdicts plus the 500 lines of the CSV |
 | `agg_reconciliation_daily` | 28 | 2025-03-04 to 2025-03-31; cadence 3 days, 10 expected dates, 1 missing (2025-03-22) |
 | `agg_amount_at_risk_daily` | 9 | 9 reference runs, all BRL |
 | `agg_volume_daily` | 83 | 30 days × 3 statuses, minus empty combinations |
@@ -101,7 +100,7 @@ March. The answers of every example query are in [`analytics.md`](analytics.md).
 |---|---|
 | every `error` check | `pass` (the run ends `success`) |
 | `missing_run:agg_reconciliation_daily` | `warn`, 1 row (2025-03-22) |
-| `reconciliation_recheck:audit_reconciliation_recheck` | `warn`, 544 rows ([`gold-layer.md`](gold-layer.md), section 3) |
+| `reconciliation_recheck:fact_reconciliation_result` | `warn`, 544 differences for run 5 (2025-03-16, the only date with a settlement file): its 93 verdicts plus the 500 lines of the CSV ([`gold-layer.md`](gold-layer.md), section 3) |
 | any other check | `pass` |
 
 Gold alerts: `reconciliation_runs_missing` warns; `discrepancy_rate_spike` passes (the latest
@@ -205,21 +204,20 @@ deviation warnings.
 | 1M / 90 days | Silver one date | 18.4 s | 2.4 GiB | compute 6.6 s, publish 0.5 s |
 | 1M / 90 days | Gold full | 74.4 s | **3.9 GiB** | compute 20.3 s, checks 2.1 s, publish 5.6 s; the rest is reading Silver and table metrics |
 | 1M / 90 days | Gold one date | 59.0 s | 2.8 GiB | compute 18.7 s, publish 1.3 s |
-| 1M / 90 days | example queries | 23.0 s | | all 17 queries |
+| 1M / 90 days | example queries | 23.0 s | | all example queries |
 | 5M / 30 days | all jobs | see the end-to-end table below | | |
 
 Storage at 1M: Bronze 310 MB, Silver 490 MB, Gold 372 MB (current version; the four large facts
-and the recheck take ~60–80 MB each, aggregates a few MB). Data quality at 1M: all `error` checks pass;
+take ~60–80 MB each, aggregates a few MB). Data quality at 1M: all `error` checks pass;
 `run_total_coherence` warns on 90 runs and `relationships:reconciliation_results.transaction_id`
 on 95 results (transactions refused by the Bronze contract). Gold at 1M: all `error` checks pass,
 including row and sum conservation; `currency_unknown` warns on 3 verdicts and
-`reconciliation_recheck` on 7,555 of 1,003,000 rows (99.5% of the service verdicts agree with the
+`reconciliation_recheck` on 7,555 differences (99.5% of the service verdicts agree with the
 recomputation; [`gold-layer.md`](gold-layer.md), section 3).
 
-The first version of the recheck listed every internal transaction of each 7-day window: 7.7M rows
-(505 MB) for 1M transactions, 6.66M of them transactions the service simply judges in another run.
-The scale test is what showed it; the recheck is now limited to the transactions the service judged
-or the processor sent.
+The recheck only counts the transactions the service judged or the processor sent. Counting every
+internal transaction of each 7-day window gave 6.66M "differences" for 1M transactions, because the
+service judges an unmatched transaction in one run only; the scale test is what showed it.
 
 **End-to-end runs per source scale** (2026-10-11, commit `df74e30-dirty`, fresh Bronze, Silver,
 Gold and observability for each level). Sample and 10k run in the container through `make`; 1M and

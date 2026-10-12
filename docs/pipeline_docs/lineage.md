@@ -39,7 +39,6 @@ flowchart LR
         gold__agg_reconciliation_merchant["agg_reconciliation_merchant"]
         gold__agg_settlement_daily["agg_settlement_daily"]
         gold__agg_volume_daily["agg_volume_daily"]
-        gold__audit_reconciliation_recheck["audit_reconciliation_recheck"]
         gold__dim_category["dim_category"]
         gold__dim_date["dim_date"]
         gold__dim_merchant["dim_merchant"]
@@ -63,14 +62,12 @@ flowchart LR
     gold__fact_reconciliation_result --> gold__agg_amount_at_risk_daily
     gold__fact_reconciliation_result --> gold__agg_reconciliation_merchant
     gold__fact_reconciliation_run --> gold__agg_reconciliation_daily
-    gold__fact_reconciliation_run --> gold__audit_reconciliation_recheck
     gold__fact_reconciliation_run --> gold__fact_reconciliation_result
     gold__fact_settlement --> gold__agg_settlement_daily
     gold__fact_transaction --> gold__agg_merchant_volume_daily
     gold__fact_transaction --> gold__agg_volume_daily
     gold__fact_transaction_event --> gold__fact_transaction
     silver__merchants --> gold__dim_merchant
-    silver__reconciliation_results --> gold__audit_reconciliation_recheck
     silver__reconciliation_results --> gold__fact_reconciliation_result
     silver__reconciliation_results --> gold__fact_reconciliation_run
     silver__reconciliation_results --> gold__fact_transaction
@@ -82,12 +79,10 @@ flowchart LR
     silver__reconciliation_runs --> gold__fact_transaction
     silver__reconciliation_runs --> silver__reconciliation_results
     silver__reconciliation_runs --> silver__reconciliation_results_quarantine
-    silver__settlements --> gold__audit_reconciliation_recheck
     silver__settlements --> gold__dim_date
     silver__settlements --> gold__fact_reconciliation_result
     silver__settlements --> gold__fact_settlement
     silver__settlements --> silver__reconciliation_results_deduped
-    silver__transactions --> gold__audit_reconciliation_recheck
     silver__transactions --> gold__dim_date
     silver__transactions --> gold__fact_reconciliation_result
     silver__transactions --> gold__fact_settlement
